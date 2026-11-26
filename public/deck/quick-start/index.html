@@ -534,6 +534,10 @@ ul.bullets.one-line li{white-space:nowrap;font-size:23px}
 .incl-card li i svg{width:54%;height:54%}
 .incl-card li b{display:block;font-family:Poppins,sans-serif;font-weight:600;font-size:28px;line-height:1.25;color:var(--ink)}
 .incl-card li span{display:block;font-family:Poppins,sans-serif;font-size:22px;line-height:1.35;color:var(--muted);margin-top:3px}
+.namewrap{position:relative;z-index:2;flex:1;display:flex;align-items:center;justify-content:center;gap:22px;padding-bottom:30px}
+.namewrap .chev{width:62px;height:62px}
+.namebox{border:2px solid var(--teal);border-radius:22px;padding:30px 70px;background:#fff;white-space:nowrap;
+  font-family:Poppins,sans-serif;font-weight:600;font-size:62px;line-height:1.15;color:#111}
 .panel.steps .num{margin-bottom:26px}
 .panel.steps .num span em{display:block;font-style:normal;font-size:15px;font-weight:700;letter-spacing:.14em;
   text-transform:uppercase;opacity:.85;margin-bottom:2px}
@@ -544,7 +548,7 @@ ul.bullets.one-line li{white-space:nowrap;font-size:23px}
 <div id="fit"><div id="stage"></div></div>
 <div id="grid"><h3>All slides — click to jump</h3><div class="gg" id="gg"></div></div>
 <div id="nav"><button id="prev" title="Previous (←)">&#8249;</button>
-  <span class="pos" id="pos" title="All slides (O)">1 / 13</span>
+  <span class="pos" id="pos" title="All slides (O)">1 / 11</span>
   <button id="next" title="Next (→)">&#8250;</button></div>
 <div class="hint">← → move · O all slides · F fullscreen</div>
 
@@ -583,12 +587,15 @@ function orig(n,t){SLIDES.push({n:n,t:t,img:true});}
 function live(n,t,html){SLIDES.push({n:n,t:t,html:'<div class="inner">'+html+'</div>'});}
 
 orig(1,"Title");
-orig(6,"Easy Bookings On Demand");
-orig(7,"Customized solution");
+/* ---- quick start: program name, matches the VSL ---- */
+live(6,"Deposit-First Booking System",
+LOGO+
+'<div class="namewrap">'+CHEV+'<div class="namebox rv" style="animation-delay:.12s">Deposit-First Booking System</div></div>');
+SLIDES[SLIDES.length-1].th="t-qs-name";
 
 /* ---- 8: ads ---- */
 live(8,"Premium FB &amp; IG Ad System",
-head(4,true)+
+head(3,true)+
 '<div class="row"><div class="col-copy">'+
   '<h1 class="title">Premium Facebook &amp;<br>Instagram Ad System</h1>'+
   '<p class="lede">The <b>proven method</b> we use to deliver <b>high-quality bookings</b> every month:</p>'+
@@ -650,7 +657,7 @@ head(4,true)+
 
 /* ---- 9: real funnel survey ---- */
 live(9,"Lead Qualification Process",
-head(5,true)+
+head(4,true)+
 '<h1 class="title" style="white-space:nowrap;margin-bottom:20px">Lead Qualification Process</h1>'+
 '<div class="row row-dtp"><div class="col-copy">'+
   bullets(["Every answer lands in your CRM","Not commutable? Auto-disqualified","Serious 0–2? Never reaches you","Only real buyers hit your phone"])+
@@ -669,7 +676,7 @@ head(5,true)+
 
 /* ---- 10: iMessage ---- */
 live(10,"Notification Process",
-head(6,true)+
+head(5,true)+
 '<div class="row"><div class="col-copy">'+
   '<h1 class="title" style="white-space:nowrap">Notification Process</h1>'+
   '<p class="lede">Every qualified lead lands on your phone the second they finish — <b>name, treatment, age, how serious they are</b>.</p>'+
@@ -684,7 +691,7 @@ head(6,true)+
 
 /* ---- 11: CRM ---- */
 live(11,"Introducing the CRM",
-head(7,true)+
+head(6,true)+
 '<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:14px">Introducing the CRM</h1>'+
 '<div style="position:relative;z-index:2;flex:1;min-height:0"><div class="crm">'+
   '<div class="crm-top"><b style="font-family:Poppins;color:#111">Opportunities</b>'+
@@ -694,7 +701,7 @@ head(7,true)+
 
 /* ---- 12: AI ---- */
 live(12,"Smart AI PMU Assistant",
-head(8)+
+head(7)+
 '<div class="row"><div class="col-copy">'+
   '<h1 class="title" style="white-space:nowrap">Smart AI PMU Assistant</h1>'+
   '<div class="aitag rv" style="animation-delay:.12s">A Smart Robot That Behaves Like A Real Human Being</div>'+
@@ -705,24 +712,8 @@ head(8)+
   '<div class="num rv" style="animation-delay:.48s"><b>03</b><span>Will warm them up for you</span></div>'+
 '</div></div></div>');
 
-live(14,"Setting Expectations",
-head(9)+
-'<div class="row" style="flex-direction:column;justify-content:center;align-items:stretch;gap:0">'+
-'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:26px">Setting Expectations</h1>'+
-'<div class="expect">'+
-  '<div class="txt">'+
-    '<p class="lead rv" style="animation-delay:.14s">Generating opportunities &mdash; 100% on us.<br>'+
-      'Turning those opportunities into bookings &mdash; on both of us.</p>'+
-    '<ul>'+
-      '<li class="rx" style="animation-delay:.26s">The system is great, but it cannot replace hard work &mdash; it requires an investment of time and energy.</li>'+
-      '<li class="rx" style="animation-delay:.36s">We won&rsquo;t be able to book all of them &mdash; it&rsquo;s a numbers game.</li>'+
-      '<li class="rx" style="animation-delay:.46s">Being a PMU artist is HARD, COMPETITIVE and not suitable for everyone.</li>'+
-    '</ul>'+
-  '</div>'+
-  '<div class="pic rv" style="animation-delay:.3s"><img src="/deck/assets/hands.jpg" alt=""></div>'+
-'</div></div>');
 live(16,"Bonus #1 — Educate Your Clients",
-head(10,true)+
+head(8,true)+
 '<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:6px"><span style="font-weight:400">Bonus #1:</span> Educate Your Clients</h1>'+
 '<p class="lede rv" style="animation-delay:.14s;position:relative;z-index:2;margin-bottom:12px;max-width:none">Pre-educate clients about PMU before they ever speak to you \u2014 tap a question to read the answer, tap the video to play it.</p>'+
 '<div style="position:relative;z-index:2;flex:1;min-height:0;display:flex;flex-direction:column">'+
@@ -730,7 +721,7 @@ head(10,true)+
 
 /* ---- 17: facebook group ---- */
 live(17,"Bonus #2 — PMU Success Society",
-head(11)+
+head(9)+
 '<div class="row"><div class="col-copy" style="flex:1 1 57%">'+
   '<h1 class="title"><span style="font-weight:500">Bonus #2:</span><br>PMU Success Society</h1>'+
   '<p class="lede">Our private growth community — real artists, real numbers, no gurus.</p>'+
@@ -746,12 +737,12 @@ head(11)+
 
 /* ---- quick start: everything included ---- */
 live(21,"Everything you get",
-head(12)+
+head(10)+
 '<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:22px">Everything You Get With Us</h1>'+
 '<div class="incl">'+
-  '<div class="incl-card main rv" style="animation-delay:.14s"><h3>Your booking system</h3><ul>'+
+  '<div class="incl-card main rv" style="animation-delay:.14s"><h3>Your Deposit-First Booking System</h3><ul>'+
     [["Facebook &amp; Instagram ads","Built, monitored and optimized for you"],
-     ["Lead qualification","Only real buyers reach your phone"],
+     ["Lead qualification funnel","Only real buyers reach your phone"],
      ["Instant lead alerts","Every qualified lead lands on your phone"],
      ["Your CRM","Every lead and every answer in one place"],
      ["Smart AI PMU Assistant","Replies in 2 minutes and warms them up for you"]
@@ -763,11 +754,11 @@ head(12)+
     ].map(function(r,k){return '<li class="rx" style="animation-delay:'+(0.5+k*0.085)+'s"><i>'+CK+'</i><div><b>'+r[0]+'</b><span>'+r[1]+'</span></div></li>';}).join('')+
   '</ul></div>'+
 '</div>');
-SLIDES[SLIDES.length-1].th="t-qs-included";
+SLIDES[SLIDES.length-1].th="t-qs-included2";
 
 /* ---- quick start: next steps ---- */
 live(22,"Let&rsquo;s get you started",
-head(13)+
+head(11)+
 '<div class="row"><div class="col-copy">'+
   '<h1 class="title">Let&rsquo;s Get You<br>Started</h1>'+
   '<p class="lede">Two quick things today.<br>Then <b>we take it from here</b>.</p>'+

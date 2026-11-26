@@ -23,19 +23,30 @@ def sub(a, b, n=1):
 sub("<title>PMU Bookings On Demand</title>", "<title>Quick Start Call — PMU Bookings On Demand</title>")
 
 # --- drop the selling slides 2-5, the map (13), the call script (15)
-for line in ['orig(2,"Today…");\n', 'orig(3,"Meet the average PMU artist");\n', 'orig(4,"No reliable system");\n', 'orig(5,"Common problem");\n', 'orig(15,"Bonus #1 — Diamond Booking Training");\n']:
+for line in ['orig(2,"Today…");\n', 'orig(3,"Meet the average PMU artist");\n', 'orig(4,"No reliable system");\n', 'orig(5,"Common problem");\n', 'orig(7,"Customized solution");\n']:
     sub(line, "")
-cut('live(13,"Area Exclusivity",', 'live(14,"Setting Expectations",')
+# map (13), Setting Expectations (14) and the call script (15) sit together
+cut('live(13,"Area Exclusivity",', 'live(16,"Bonus #2 — Educate Your Clients",')
+
+# --- the program name slide: same look as the old "Easy Bookings On Demand" render,
+#     but with the name the VSL uses (Deposit-First Booking System)
+NAME = r'''/* ---- quick start: program name, matches the VSL ---- */
+live(6,"Deposit-First Booking System",
+LOGO+
+'<div class="namewrap">'+CHEV+'<div class="namebox rv" style="animation-delay:.12s">Deposit-First Booking System</div></div>');
+SLIDES[SLIDES.length-1].th="t-qs-name";
+'''
+sub('orig(6,"Easy Bookings On Demand");\n', NAME)
 
 # --- drop guarantee (18), calculator (19), prices (20); put the two new slides there
 NEW = r'''/* ---- quick start: everything included ---- */
 live(21,"Everything you get",
-head(12)+
+head(10)+
 '<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:22px">Everything You Get With Us</h1>'+
 '<div class="incl">'+
-  '<div class="incl-card main rv" style="animation-delay:.14s"><h3>Your booking system</h3><ul>'+
+  '<div class="incl-card main rv" style="animation-delay:.14s"><h3>Your Deposit-First Booking System</h3><ul>'+
     [["Facebook &amp; Instagram ads","Built, monitored and optimized for you"],
-     ["Lead qualification","Only real buyers reach your phone"],
+     ["Lead qualification funnel","Only real buyers reach your phone"],
      ["Instant lead alerts","Every qualified lead lands on your phone"],
      ["Your CRM","Every lead and every answer in one place"],
      ["Smart AI PMU Assistant","Replies in 2 minutes and warms them up for you"]
@@ -47,11 +58,11 @@ head(12)+
     ].map(function(r,k){return '<li class="rx" style="animation-delay:'+(0.5+k*0.085)+'s"><i>'+CK+'</i><div><b>'+r[0]+'</b><span>'+r[1]+'</span></div></li>';}).join('')+
   '</ul></div>'+
 '</div>');
-SLIDES[SLIDES.length-1].th="t-qs-included";
+SLIDES[SLIDES.length-1].th="t-qs-included2";
 
 /* ---- quick start: next steps ---- */
 live(22,"Let&rsquo;s get you started",
-head(13)+
+head(11)+
 '<div class="row"><div class="col-copy">'+
   '<h1 class="title">Let&rsquo;s Get You<br>Started</h1>'+
   '<p class="lede">Two quick things today.<br>Then <b>we take it from here</b>.</p>'+
@@ -70,11 +81,11 @@ cut("/* ---- 18: guarantee ---- */", "/* ============ render ============ */", r
 cut("/* ---- slide 19: their real calculator ---- */", "show(0); window.focus();")
 
 # --- "Slide N" labels follow the new order
-MAP = {8:4, 9:5, 10:6, 11:7, 12:8, 14:9, 16:10, 17:11}
+MAP = {8:3, 9:4, 10:5, 11:6, 12:7, 16:8, 17:9}
 seen = []
 def renum(m):
     n = int(m.group(1))
-    if n in (12, 13) and m.start() >= s.index("/* ---- quick start: everything included ---- */"):
+    if n in (10, 11) and m.start() >= s.index("/* ---- quick start: everything included ---- */"):
         return m.group(0)           # the two new slides are already numbered
     seen.append(n)
     return "head(%d%s)" % (MAP[n], m.group(2) or "")
@@ -90,7 +101,7 @@ sub('<span style="font-weight:500">Bonus #3:</span><br>PMU Success Society', '<s
 # --- "all slides" grid: own thumbnails for the new slides, position instead of the old slide number
 sub("""<img src="/deck/assets/thumbs/t-'+pad(s.n)+'.jpg" alt="" loading="lazy">""", """<img src="/deck/assets/thumbs/'+(s.th||('t-'+pad(s.n)))+'.jpg" alt="" loading="lazy">""")
 sub("""'<em>'+s.n+'</em>'""", """'<em>'+(k+1)+'</em>'""")
-sub('id="pos" title="All slides (O)">1 / 22</span>', 'id="pos" title="All slides (O)">1 / 13</span>')
+sub('id="pos" title="All slides (O)">1 / 22</span>', 'id="pos" title="All slides (O)">1 / 11</span>')
 
 # --- styles for the two new slides
 CSS = '''
@@ -109,6 +120,10 @@ CSS = '''
 .incl-card li i svg{width:54%;height:54%}
 .incl-card li b{display:block;font-family:Poppins,sans-serif;font-weight:600;font-size:28px;line-height:1.25;color:var(--ink)}
 .incl-card li span{display:block;font-family:Poppins,sans-serif;font-size:22px;line-height:1.35;color:var(--muted);margin-top:3px}
+.namewrap{position:relative;z-index:2;flex:1;display:flex;align-items:center;justify-content:center;gap:22px;padding-bottom:30px}
+.namewrap .chev{width:62px;height:62px}
+.namebox{border:2px solid var(--teal);border-radius:22px;padding:30px 70px;background:#fff;white-space:nowrap;
+  font-family:Poppins,sans-serif;font-weight:600;font-size:62px;line-height:1.15;color:#111}
 .panel.steps .num{margin-bottom:26px}
 .panel.steps .num span em{display:block;font-style:normal;font-size:15px;font-weight:700;letter-spacing:.14em;
   text-transform:uppercase;opacity:.85;margin-bottom:2px}
