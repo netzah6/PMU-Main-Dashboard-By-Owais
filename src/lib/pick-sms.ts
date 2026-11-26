@@ -144,7 +144,7 @@ export function pickSmsArm(phone: string): "sms" | "hold" {
 }
 
 /** POST one SMS from the sub-account. GHL answers with the new message's id. */
-export async function postSms(tok: string, contactId: string, message: string): Promise<{ ok: boolean; status: number; messageId: string | null; error: string | null }> {
+async function postSms(tok: string, contactId: string, message: string): Promise<{ ok: boolean; status: number; messageId: string | null; error: string | null }> {
   const r = await fetch(`${GHL}/conversations/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${tok}`, Version: "2021-04-15", "Content-Type": "application/json", Accept: "application/json" },

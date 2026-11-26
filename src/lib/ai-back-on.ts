@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { locationTimezone } from "@/lib/onebox";
 import { firstName, hasPaidTag, leadTimezone, nextDaytime, readContact } from "@/lib/pick-email";
-import { AUTOMATED_SOURCES, keepAiOn, lowerTags, postSms, smsSegments, type AiRestore } from "@/lib/pick-sms";
-import { loadDirectory } from "@/lib/closebot-coverage";
+import { AUTOMATED_SOURCES, keepAiOn, lowerTags, smsSegments, type AiRestore } from "@/lib/pick-sms";
+import { CLIENTS_KEY, loadDirectory, type CbClients } from "@/lib/closebot-coverage";
+import { fileAlert } from "@/lib/alerts";
 
 type Svc = ReturnType<typeof createServiceClient>;
 
@@ -23,14 +25,16 @@ type Svc = ReturnType<typeof createServiceClient>;
    also sends her ONE short check-in; her reply goes to the AI.
 
    Who gets the check-in (every check, live in GHL, at the moment of sending):
-   - a Live V3 studio on Clients Master, except the studios the owner keeps
-     out of all changes (SKIP_LOCATIONS);
+   - a Live V3 studio on Clients Master whose CloseBot is ON in the daily
+     CloseBot check (else nobody would answer her reply), except the studios
+     the owner keeps out of all changes (SKIP_LOCATIONS);
    - she has "ai off" and "(v3)"; no paid tag, no goodbye / declining /
      stop / opt-out tag; SMS do-not-disturb off;
    - the AI (CloseBot) talked to her, and after that a PERSON took over: an
      outbound text with no app name that no automation sent, or an outbound
      call (GHL's export names every app's message, so a text with no app
-     name was typed by a person — same rule as src/lib/pick-sms.ts);
+     name was typed by a person — same rule as src/lib/pick-sms.ts). A call
+     she ANSWERED for a minute or more → skip (we can't know what they agreed);
    - that last person touch is 48 hours to 7 days ago, and she has sent
      NOTHING since (any channel, any inbound) — so she has no unanswered
      message the AI would answer days late the moment it comes back;
@@ -43,13 +47,25 @@ type Svc = ReturnType<typeof createServiceClient>;
    - a model reads the thread and finds no sign that she booked or paid
      somewhere else, said no, asked to wait, or that the artist moved her
      to a call / DM / in person. When unsure → no text;
-   - at most one check-in per lead per 30 days; daytime for her
-     (10 AM – 6 PM her time); a daily cap per studio.
+   - ONE check-in per lead, ever; daytime for her (10 AM – 6 PM her time);
+     a daily cap per studio.
+
+   The leads are found LIVE in GHL each run (contacts tagged "ai off" and
+   updated in the last 8 days, per studio) — the synced copy of tags in
+   Supabase stops updating about a day after a lead comes in, so it misses
+   most takeovers (review 11/26/2026).
 
    What happens: the check-in goes out from the studio's own number; then
    keepAiOn (pick-sms.ts) takes "ai off" off and puts "ai on" + "(v3)" on,
    and keeps it that way through CloseBot's shutoff, which fires again on
-   our own text. If she answers, CloseBot answers her.
+   our own text. If she answers, CloseBot answers her. If the AI can't be
+   switched back on, or she replied while it was switching, an alert goes
+   to the Alerts tab so a person answers her.
+
+   Vercel stops the run at 300 s and keepAiOn needs up to ~2 min after each
+   text, so no text starts after SEND_DEADLINE_MS; the "sent" row is written
+   right after the text, before the AI step. A lease in app_settings stops
+   two runs from overlapping (Vercel may deliver a cron twice).
 
    Ships OFF (app_settings "ai_back_on"). ?dry=1 on the cron shows who WOULD
    get the text and writes nothing. */
@@ -60,12 +76,19 @@ const GHL = "https://services.leadconnectorhq.com";
 
 const QUIET_MS = 48 * 3600_000;      // owner 11/22: the AI comes back after 48 hours
 const MAX_AGE_MS = 7 * 86400_000;    // takeovers from the last week only (older leads are win-back's job)
-const REPEAT_MS = 30 * 86400_000;    // one check-in per lead per 30 days
+const MEMORY_MS = 30 * 86400_000;    // how long a model "no" / a failed send is remembered
 const SMS_DAY = { from: 10, to: 18, resume: 10 }; // her clock
 const PER_STUDIO_DAY = 15;
 const MAX_PER_RUN = 25;               // texts per run (each needs ~1.5 min of AI-on watching)
 const CONCURRENCY = 4;
 const MODEL = process.env.AI_BACK_ON_MODEL || "claude-opus-5-5";
+const TALK_SECONDS = 60;              // an answered call this long = they talked
+const ROUTE_LIMIT_MS = 300_000;       // the route's maxDuration
+const RESTORE_MS = 135_000;           // keepAiOn: 80 s watch + 45 s hard stop + the last read
+const SEND_DEADLINE_MS = ROUTE_LIMIT_MS - RESTORE_MS - 20_000; // no text starts after this
+const CB_FRESH_MS = 3 * 86400_000;    // the daily CloseBot check must be this fresh
+const LOCK_KEY = "ai_back_on_lock";
+const LOCK_MS = ROUTE_LIMIT_MS + 10_000;
 
 /* Studios the owner keeps out of every change (11/22 + 11/26/2026). Since
    11/26 the third one that used to be here is included like everyone. */
@@ -134,7 +157,7 @@ async function ghlGet(url: string, headers: Record<string, string>): Promise<Res
   }
   return null;
 }
-type Msg = { id: string; at: number; dir: "inbound" | "outbound" | ""; type: string; source: string; app: string; body: string };
+type Msg = { id: string; at: number; dir: "inbound" | "outbound" | ""; type: string; source: string; app: string; body: string; callSecs: number; callStatus: string };
 
 const NOT_A_MESSAGE = /ACTIVITY|COMMENT/i;
 const isCall = (m: Msg) => /CALL/i.test(m.type);
@@ -162,11 +185,14 @@ async function history(tok: string, locationId: string, contactId: string, stopB
       const at = Date.parse(String(m.dateAdded ?? ""));
       if (!Number.isFinite(at)) continue;
       const dir = String(m.direction ?? "").toLowerCase();
+      const meta = (m.meta ?? {}) as { marketplace?: { appName?: string }; call?: { duration?: number; status?: string } };
       out.push({
         id: String(m.id ?? ""), at, dir: dir === "inbound" || dir === "outbound" ? dir : "", type,
         source: String(m.source ?? "").toLowerCase(),
-        app: String(((m.meta as { marketplace?: { appName?: string } } | undefined)?.marketplace?.appName) ?? ""),
+        app: String(meta.marketplace?.appName ?? ""),
         body: String(m.body ?? "").trim(),
+        callSecs: Number(meta.call?.duration ?? 0) || 0,
+        callStatus: String(meta.call?.status ?? m.status ?? "").toLowerCase(),
       });
     }
     const oldest = Math.min(...raw.map((m) => Date.parse(String(m.dateAdded ?? ""))).filter(Number.isFinite));
@@ -252,7 +278,9 @@ function threadText(msgs: Msg[]): string {
   return [...msgs].reverse().slice(-40).map((m) => {
     const when = new Date(m.at).toISOString().slice(5, 16).replace("T", " ");
     const who = m.dir === "inbound" ? "LEAD" : byCloseBot(m) ? "AI" : byPerson(m) ? "ARTIST" : "AUTO";
-    const body = isCall(m) ? "(phone call)" : (m.body || "(no text)").replace(/\s+/g, " ").slice(0, 400);
+    const body = isCall(m)
+      ? (m.callSecs >= TALK_SECONDS ? `(phone call, they talked ${Math.round(m.callSecs / 60)} min)` : `(phone call, no real talk${m.callStatus ? `: ${m.callStatus}` : ""})`)
+      : (m.body || "(no text)").replace(/\s+/g, " ").slice(0, 400);
     return `[${when}] ${who}: ${body}`;
   }).join("\n");
 }
@@ -287,7 +315,7 @@ export type Decision =
   | { kind: "error"; why: string };
 
 type Judge = (msgs: Msg[]) => Promise<{ send: boolean; why: string } | null>;
-type Ctx = { tok: string; locTz: string; pipes: Pipes; fields: FieldIds; client: Anthropic | null; judge?: Judge; now: number; quietMs: number; maxAgeMs: number; modelNo: Map<string, string> };
+type Ctx = { tok: string; locTz: string; pipes: Pipes; fields: FieldIds; client: Anthropic | null; judge?: Judge; now: number; quietMs: number; maxAgeMs: number; modelNo: Map<string, string>; guardSince?: number; anyHour?: boolean };
 
 export async function decide(ctx: Ctx, locationId: string, contactId: string): Promise<Decision> {
   const { tok, now } = ctx;
@@ -307,7 +335,9 @@ export async function decide(ctx: Ctx, locationId: string, contactId: string): P
   if (hasPaidTag(c)) return { kind: "skip", why: "paid" };
   const stopTag = tags.find((t) => STOP_TAGS.includes(t));
   if (stopTag) return { kind: "skip", why: `tag: ${stopTag}` };
-  const dnd = c.dnd === true || String(((c.dndSettings as Record<string, { status?: string }> | undefined)?.SMS?.status) ?? "") === "active";
+  // Same rule as repeat-restart / win-back: a STOP reply is saved as SMS status "permanent", not "active".
+  const smsSt = String(((c.dndSettings as Record<string, { status?: string } | undefined> | undefined)?.SMS?.status) ?? "").toLowerCase();
+  const dnd = c.dnd === true || (!!smsSt && smsSt !== "inactive");
   if (dnd) return { kind: "skip", why: "do not disturb" };
   if (!String(c.phone ?? "").trim()) return { kind: "skip", why: "no phone" };
 
@@ -321,9 +351,10 @@ export async function decide(ctx: Ctx, locationId: string, contactId: string): P
   const touchAge = now - lastPerson.at;
   if (touchAge < ctx.quietMs) return { kind: "later", why: "artist touch under 48 h ago" };
   if (touchAge > ctx.maxAgeMs) return { kind: "skip", why: "artist touch over 7 days ago" };
+  if (isCall(lastPerson) && lastPerson.callSecs >= TALK_SECONDS) return { kind: "skip", why: "the artist talked with her by phone" };
   if (msgs.some((m) => m.dir === "inbound" && m.at > lastPerson.at)) return { kind: "skip", why: "she replied after the artist" };
-  // Belt and braces next to the table: our check-in already in her thread since that touch → never a second one.
-  if (msgs.some((m) => m.dir === "outbound" && m.at > lastPerson.at && CHECK_IN_SENT.test(m.body))) return { kind: "skip", why: "already checked in (thread)" };
+  // Belt and braces next to the table: our check-in anywhere in her thread → never a second one.
+  if (msgs.some((m) => m.dir === "outbound" && m.at >= (ctx.guardSince ?? 0) && CHECK_IN_SENT.test(m.body))) return { kind: "skip", why: "already checked in (thread)" };
   // Nobody texted or called her in the last 48 hours (emails don't count — nurture emails run on their own).
   const lastOut = msgs.find((m) => m.dir === "outbound" && !isEmail(m));
   if (lastOut && now - lastOut.at < ctx.quietMs) return { kind: "later", why: "texted in the last 48 h" };
@@ -340,9 +371,13 @@ export async function decide(ctx: Ctx, locationId: string, contactId: string): P
   if (!ap.ok) return ap.error ? { kind: "error", why: ap.why } : { kind: "skip", why: ap.why };
 
   // 4. Daytime for her.
+  // Her clock: her own time zone, else the studio's. Neither readable → wait (never guess New York).
+  const ownTz = String(c.timezone ?? "");
+  const ownOk = (() => { try { return !!ownTz && !!new Intl.DateTimeFormat("en-US", { timeZone: ownTz }); } catch { return false; } })();
+  if (!ownOk && !ctx.locTz) return { kind: "later", why: "studio time zone unreadable" };
   const tz = leadTimezone(c, ctx.locTz);
   const at = nextDaytime(new Date(now), tz, SMS_DAY);
-  if (at.getTime() > now) return { kind: "later", why: "night for her", at: at.toISOString() };
+  if (at.getTime() > now && !ctx.anyHour) return { kind: "later", why: "night for her", at: at.toISOString() };
 
   // 5. The model reads the thread (cached "no" while the thread is unchanged).
   if (ctx.modelNo.get(contactId) === lastMessageId) return { kind: "skip", why: "model: no (thread unchanged)", lastMessageId };
@@ -359,136 +394,237 @@ export async function decide(ctx: Ctx, locationId: string, contactId: string): P
   return { kind: "send", text, first, service, touchAt: lastPerson.at, touchBy: isCall(lastPerson) ? "call" : "text", tz, lastMessageId, segments: smsSegments(text).segments };
 }
 
+// ─── Sending ────────────────────────────────────────────────────────────────
+type SendResult = { ok: boolean; status: number; messageId: string | null; error: string | null; unknown: boolean };
+/** One SMS from the sub-account. Never throws; a timeout or network error = "unknown" (it may have gone out). */
+async function sendSms(tok: string, contactId: string, message: string): Promise<SendResult> {
+  try {
+    const r = await fetch(`${GHL}/conversations/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tok}`, Version: "2021-04-15", "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ type: "SMS", contactId, message }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (r.ok) {
+      const j = (await r.json().catch(() => ({}))) as { messageId?: string; id?: string };
+      return { ok: true, status: r.status, messageId: String(j.messageId ?? j.id ?? "") || null, error: null, unknown: false };
+    }
+    return { ok: false, status: r.status, messageId: null, error: `HTTP ${r.status}: ${(await r.text().catch(() => "")).slice(0, 180)}`, unknown: false };
+  } catch (e) {
+    return { ok: false, status: 0, messageId: null, error: e instanceof Error ? e.message : String(e), unknown: true };
+  }
+}
+
+/* Live list of "ai off" leads in one studio, updated since `sinceIso` (newest first, up to 500). Null = unreadable. */
+async function aiOffLeads(tok: string, locationId: string, sinceIso: string): Promise<string[] | null> {
+  const ids: string[] = [];
+  for (let page = 1; page <= 5; page++) {
+    let r: Response | null = null;
+    for (let i = 0; i < 4; i++) {
+      r = await fetch(`${GHL}/contacts/search`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tok}`, Version: "2021-07-28", "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          locationId, page, pageLimit: 100,
+          filters: [{ field: "tags", operator: "eq", value: "ai off" }, { field: "dateUpdated", operator: "range", value: { gte: sinceIso } }],
+          sort: [{ field: "dateUpdated", direction: "desc" }],
+        }),
+        signal: AbortSignal.timeout(20_000),
+      }).catch(() => null);
+      if (r && r.status !== 429 && r.status < 500) break;
+      await sleep(2_000 * (i + 1) + Math.floor(Math.random() * 1_000));
+    }
+    if (!r || !r.ok) return null;
+    const cs = (((await r.json().catch(() => ({}))) as { contacts?: { id?: string }[] }).contacts ?? []);
+    for (const c of cs) if (c.id) ids.push(String(c.id));
+    if (cs.length < 100) break;
+  }
+  return ids;
+}
+
+/* One run at a time: a lease row in app_settings, taken with a conditional
+   update (only when the last lease has run out). Null = another run holds it. */
+async function takeLock(svc: Svc): Promise<string | null> {
+  const nowIso = new Date().toISOString();
+  await svc.from("app_settings").upsert({ key: LOCK_KEY, value: { until: "1970-01-01T00:00:00.000Z", run: null }, updated_at: nowIso }, { onConflict: "key", ignoreDuplicates: true });
+  const run = randomUUID();
+  const { data, error } = await svc.from("app_settings")
+    .update({ value: { until: new Date(Date.now() + LOCK_MS).toISOString(), run }, updated_at: nowIso })
+    .eq("key", LOCK_KEY).lt("value->>until", nowIso).select("key");
+  return !error && data?.length ? run : null;
+}
+async function dropLock(svc: Svc, run: string) {
+  await svc.from("app_settings").update({ value: { until: new Date().toISOString(), run: null }, updated_at: new Date().toISOString() })
+    .eq("key", LOCK_KEY).eq("value->>run", run);
+}
+
 // ─── The run ────────────────────────────────────────────────────────────────
 export type AiBackOnPreview = { locationId: string; studio: string; contactId: string; name: string; touchAt: string; touchBy: string; text: string };
 export type AiBackOnRun = {
-  enabled: boolean; dryRun: boolean; tableMissing?: boolean;
-  studios: number; candidates: number; checked: number; unchecked: number;
-  sent: number; aiRestored: Record<string, number>;
+  enabled: boolean; dryRun: boolean; tableMissing?: boolean; locked?: boolean;
+  studios: number; studiosNoCloseBot: number; candidates: number; checked: number; unchecked: number;
+  sent: number; aiRestored: Record<string, number>; alerts: number;
   skipped: Record<string, number>; later: Record<string, number>;
   errors: string[]; partial: boolean;
   wouldSend?: AiBackOnPreview[];
-  sentList?: (AiBackOnPreview & { ai: AiRestore["result"] })[];
+  sentList?: (AiBackOnPreview & { ai: AiRestore["result"] | "not run" })[];
   skippedList?: { contactId: string; studio: string; why: string }[];
 };
 
 const bump = (o: Record<string, number>, k: string) => { o[k] = (o[k] ?? 0) + 1; };
 const reasonKey = (why: string) => (why.startsWith("model:") ? "model: no" : why.startsWith("stage:") ? "stage" : why.startsWith("tag:") ? why : why.replace(/\(.*\)/, "").trim());
+const shuffle = <T,>(a: T[]): T[] => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
 /* dryRun: nothing is sent or written — returns who WOULD get the text now.
    Test runs only (scripts, never the cron): `only` limits the run to the
-   named contacts (no candidate table read), `quietMs` stands in for the
-   48 hours, `extraStudios` adds internal accounts such as the Demo. */
+   named contacts, `quietMs` stands in for the 48 hours, `extraStudios` adds
+   internal accounts such as the Demo, `judge` stands in for the model (no
+   model key on a laptop). */
 export async function runAiBackOn(svc: Svc, opts: {
   dryRun?: boolean; now?: Date; budgetMs?: number; limit?: number; listSkips?: boolean;
   only?: { locationId: string; contactId: string }[]; quietMs?: number; extraStudios?: { locationId: string; name: string }[];
-  judge?: Judge; // test runs with `only` (no model key on a laptop): stands in for the model's look at the thread
+  judge?: Judge;
+  testGuardSince?: number; // test runs only: the Demo thread keeps earlier test check-ins; ignore those older than this
+  testAnyHour?: boolean;    // test runs only: skip the daytime gate (tested on real leads in the fleet dry run)
 } = {}): Promise<AiBackOnRun> {
   const started = Date.now();
-  const budget = opts.budgetMs ?? 230_000;
+  const elapsed = () => Date.now() - started;
   const now = (opts.now ?? new Date()).getTime();
   const dryRun = !!opts.dryRun;
+  // A real run must leave time for the last AI step before Vercel's 300 s cut.
+  const budget = dryRun ? (opts.budgetMs ?? 230_000) : Math.min(opts.budgetMs ?? SEND_DEADLINE_MS, SEND_DEADLINE_MS);
   const limit = opts.limit ?? MAX_PER_RUN;
   const quietMs = opts.only ? (opts.quietMs ?? QUIET_MS) : QUIET_MS;
-  const settings = await getAiBackOnSettings(svc);
+  let settings = await getAiBackOnSettings(svc);
+  let settingsAt = Date.now();
   const res: AiBackOnRun = {
-    enabled: settings.enabled, dryRun, studios: 0, candidates: 0, checked: 0, unchecked: 0, sent: 0, aiRestored: {},
+    enabled: settings.enabled, dryRun, studios: 0, studiosNoCloseBot: 0, candidates: 0, checked: 0, unchecked: 0, sent: 0, aiRestored: {}, alerts: 0,
     skipped: {}, later: {}, errors: [], partial: false,
     ...(dryRun ? { wouldSend: [] } : { sentList: [] }), ...(opts.listSkips ? { skippedList: [] } : {}),
   };
   // Off → nothing is sent. (Test scripts that name their contacts in `only` may send to those — never the cron.)
   if (!dryRun && !settings.enabled && !opts.only) return res;
 
-  // Studios: Live V3 on Clients Master, minus the owner's no-change studios.
-  const dir = await loadDirectory(svc);
-  const studios = new Map<string, string>();
-  for (const s of dir.v3) if (s.locationId && s.status.toLowerCase() === "live" && !SKIP_LOCATIONS.has(s.locationId)) studios.set(s.locationId, s.business);
-  for (const s of opts.extraStudios ?? []) if (!SKIP_LOCATIONS.has(s.locationId)) studios.set(s.locationId, s.name);
-  res.studios = studios.size;
-
-  // Candidates: "ai off" leads whose last activity falls in the window (a pre-filter only — every check runs live).
-  let cands: { locationId: string; contactId: string }[];
-  if (opts.only) {
-    cands = opts.only.filter((c) => studios.has(c.locationId));
-  } else {
-    cands = [];
-    const locs = [...studios.keys()];
-    const from = new Date(now - MAX_AGE_MS - 86400_000).toISOString();
-    const to = new Date(now - QUIET_MS + 3600_000).toISOString();
-    for (let i = 0; i < locs.length; i += 50) {
-      for (let p = 0; ; p += 1000) {
-        const { data, error } = await svc.from("ghl_lead_status").select("location_id, contact_id")
-          .in("location_id", locs.slice(i, i + 50)).eq("ai_off", true).gte("activity_date", from).lte("activity_date", to)
-          .order("contact_id").range(p, p + 999);
-        if (error) throw new Error(`lead list: ${error.message}`);
-        for (const r of data ?? []) if (r.contact_id && r.location_id) cands.push({ locationId: String(r.location_id), contactId: String(r.contact_id) });
-        if (!data || data.length < 1000) break;
-      }
-    }
+  let lock: string | null = null;
+  if (!dryRun) {
+    lock = await takeLock(svc);
+    if (!lock) { res.locked = true; return res; }
   }
-  // One row per contact.
-  cands = [...new Map(cands.map((c) => [c.contactId, c])).values()];
+  try {
+    await runInner();
+  } finally {
+    if (lock) await dropLock(svc, lock).catch(() => undefined);
+  }
+  return res;
 
-  // Already checked in (30 days), and the model's cached "no" answers.
-  const done = new Set<string>();
-  const modelNo = new Map<string, string>();
-  const failedTimes = new Map<string, number>();
-  const sentToday = new Map<string, number>();
-  {
-    const since = new Date(now - REPEAT_MS).toISOString();
+  async function runInner() {
+    // Studios: Live V3 on Clients Master whose CloseBot is on, minus the owner's no-change studios.
+    const dir = await loadDirectory(svc);
+    const { data: cbRow } = await svc.from("app_settings").select("value").eq("key", CLIENTS_KEY).maybeSingle();
+    const cb = (cbRow?.value ?? null) as CbClients | null;
+    const cbFresh = !!cb?.at && now - Date.parse(cb.at) < CB_FRESH_MS;
+    if (!cbFresh) {
+      res.errors.push(`the daily CloseBot check is missing or older than 3 days (${cb?.at ?? "none"})`);
+      if (!dryRun && !opts.only) return; // can't tell whose AI would answer — send nothing
+    }
+    const cbOn = new Set((cb?.clients ?? []).filter((r) => r.loc && r.s === "on").map((r) => r.loc as string));
+    const studios = new Map<string, string>();
+    for (const s of dir.v3) {
+      if (!s.locationId || s.status.toLowerCase() !== "live" || SKIP_LOCATIONS.has(s.locationId)) continue;
+      if (!cbOn.has(s.locationId)) { res.studiosNoCloseBot++; continue; }
+      studios.set(s.locationId, s.business);
+    }
+    for (const s of opts.extraStudios ?? []) if (!SKIP_LOCATIONS.has(s.locationId)) studios.set(s.locationId, s.name);
+    res.studios = studios.size;
+
+    const toks = new Map<string, { tok: string | null; tz: string }>();
+    const studioFor = async (loc: string) => {
+      const hit = toks.get(loc);
+      if (hit && (hit.tz || !hit.tok)) return hit;
+      const t = hit?.tok ?? (await getAppLocationToken(loc)).token ?? null;
+      let tz = "";
+      for (let i = 0; t && !tz && i < 3; i++) { tz = await locationTimezone(loc, t); if (!tz) await sleep(1_500 * (i + 1)); }
+      const v = { tok: t, tz };
+      toks.set(loc, v); // an unreadable time zone is tried again on the next lead
+      return v;
+    };
+
+    // Candidates, live from GHL.
+    let cands: { locationId: string; contactId: string }[] = [];
+    if (opts.only) {
+      cands = opts.only.filter((c) => studios.has(c.locationId));
+    } else {
+      const since = new Date(now - MAX_AGE_MS - 86400_000).toISOString();
+      const locs = [...studios.keys()];
+      let li = 0;
+      await Promise.all(Array.from({ length: 6 }, async () => {
+        while (li < locs.length) {
+          const loc = locs[li++];
+          try {
+            const st = await studioFor(loc);
+            if (!st.tok) { res.errors.push(`${studios.get(loc)}: no token`); continue; }
+            const ids = await aiOffLeads(st.tok, loc, since);
+            if (!ids) { res.errors.push(`${studios.get(loc)}: lead search failed`); continue; }
+            for (const id of ids) cands.push({ locationId: loc, contactId: id });
+          } catch (e) {
+            res.errors.push(`${studios.get(loc)}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+      }));
+    }
+    cands = shuffle([...new Map(cands.map((c) => [c.contactId, c])).values()]);
+
+    // Memory: everyone ever checked in; the model's "no" while the thread is unchanged; failed sends.
+    const done = new Set<string>();
+    const modelNo = new Map<string, string>();
+    const failedTimes = new Map<string, number>();
+    const sentToday = new Map<string, number>();
     const dayStart = new Date(now - 24 * 3600_000).toISOString();
+    const memSince = new Date(now - MEMORY_MS).toISOString();
     for (let p = 0; ; p += 1000) {
-      const { data, error } = await svc.from(TABLE).select("contact_id, location_id, status, last_message_id, created_at").gte("created_at", since).order("id").range(p, p + 999);
-      if (isMissingTable(error)) { res.tableMissing = true; if (!dryRun) { res.errors.push(`${TABLE} table missing`); return res; } break; }
+      const { data, error } = await svc.from(TABLE).select("contact_id, location_id, status, last_message_id, created_at").order("id").range(p, p + 999);
+      if (isMissingTable(error)) { res.tableMissing = true; if (!dryRun) { res.errors.push(`${TABLE} table missing`); return; } break; }
       if (error) throw new Error(error.message);
       for (const r of (data ?? []) as { contact_id: string; location_id: string; status: string; last_message_id: string | null; created_at: string }[]) {
         if (r.status === "sent") {
           done.add(r.contact_id);
           if (r.created_at >= dayStart) sentToday.set(r.location_id, (sentToday.get(r.location_id) ?? 0) + 1);
-        } else if (r.status === "model_no" && r.last_message_id) modelNo.set(r.contact_id, r.last_message_id);
-        else if (r.status === "failed") failedTimes.set(r.contact_id, (failedTimes.get(r.contact_id) ?? 0) + 1);
+        } else if (r.created_at >= memSince) {
+          if (r.status === "model_no" && r.last_message_id) modelNo.set(r.contact_id, r.last_message_id);
+          else if (r.status === "failed") failedTimes.set(r.contact_id, (failedTimes.get(r.contact_id) ?? 0) + 1);
+        }
       }
       if (!data || data.length < 1000) break;
     }
-  }
-  cands = cands.filter((c) => {
-    if (done.has(c.contactId)) { bump(res.skipped, "already checked in"); return false; }
-    if ((failedTimes.get(c.contactId) ?? 0) >= 2) { bump(res.skipped, "failed twice"); return false; }
-    return true;
-  });
-  res.candidates = cands.length;
+    cands = cands.filter((c) => {
+      if (done.has(c.contactId)) { bump(res.skipped, "already checked in"); return false; }
+      if ((failedTimes.get(c.contactId) ?? 0) >= 2) { bump(res.skipped, "failed twice"); return false; }
+      return true;
+    });
+    res.candidates = cands.length;
 
-  const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 60_000 }) : null;
-  const toks = new Map<string, { tok: string | null; tz: string }>();
-  const pipes: Pipes = new Map();
-  const fields: FieldIds = new Map();
-  const studioFor = async (loc: string) => {
-    if (!toks.has(loc)) {
-      const t = (await getAppLocationToken(loc)).token ?? null;
-      toks.set(loc, { tok: t, tz: t ? await locationTimezone(loc, t) : "" });
-    }
-    return toks.get(loc)!;
-  };
+    const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 60_000 }) : null;
+    const pipes: Pipes = new Map();
+    const fields: FieldIds = new Map();
+    let next = 0, sending = 0, stopped = false;
+    const record = async (row: Record<string, unknown>): Promise<number | null> => {
+      const { data, error } = await svc.from(TABLE).insert(row).select("id").maybeSingle();
+      if (error) { res.errors.push(`record: ${error.message}`); return null; }
+      return (data as { id: number } | null)?.id ?? null;
+    };
+    const stillOn = async () => {
+      if (dryRun || opts.only) return true;
+      if (Date.now() - settingsAt > 20_000) { settings = await getAiBackOnSettings(svc); settingsAt = Date.now(); }
+      return settings.enabled;
+    };
 
-  let next = 0, sending = 0;
-  const record = async (row: Record<string, unknown>) => {
-    const { error } = await svc.from(TABLE).insert(row);
-    if (error) res.errors.push(`record: ${error.message}`);
-  };
-
-  await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
-    for (;;) {
-      if (Date.now() - started > budget) { res.partial = true; return; }
-      if (res.sent + sending >= limit) return;
-      const c = cands[next++];
-      if (!c) return;
+    async function one(c: { locationId: string; contactId: string }) {
       const studio = studios.get(c.locationId) ?? c.locationId;
-      if (!dryRun && (sentToday.get(c.locationId) ?? 0) >= PER_STUDIO_DAY) { bump(res.later, "studio daily cap"); continue; }
       const st = await studioFor(c.locationId);
-      if (!st.tok) { bump(res.skipped, "no studio token"); continue; }
+      if (!st.tok) { bump(res.skipped, "no studio token"); return; }
       let d: Decision;
       try {
-        d = await decide({ tok: st.tok, locTz: st.tz, pipes, fields, client, judge: opts.only ? opts.judge : undefined, now, quietMs, maxAgeMs: MAX_AGE_MS, modelNo }, c.locationId, c.contactId);
+        d = await decide({ tok: st.tok, locTz: st.tz, pipes, fields, client, judge: opts.only ? opts.judge : undefined, guardSince: opts.only ? opts.testGuardSince : undefined, anyHour: !!(opts.only && opts.testAnyHour), now, quietMs, maxAgeMs: MAX_AGE_MS, modelNo }, c.locationId, c.contactId);
       } catch (e) {
         d = { kind: "error", why: e instanceof Error ? e.message : String(e) };
       }
@@ -497,39 +633,78 @@ export async function runAiBackOn(svc: Svc, opts: {
         bump(res.skipped, reasonKey(d.why));
         res.skippedList?.push({ contactId: c.contactId, studio, why: d.why });
         if (d.modelNo && !dryRun) await record({ contact_id: c.contactId, location_id: c.locationId, status: "model_no", reason: d.why, last_message_id: d.lastMessageId ?? null });
-        continue;
+        return;
       }
-      if (d.kind === "later") { bump(res.later, d.why); continue; }
-      if (d.kind === "error") { bump(res.skipped, "error"); res.errors.push(`${studio}: ${d.why}`); continue; }
+      if (d.kind === "later") { bump(res.later, d.why); return; }
+      if (d.kind === "error") { bump(res.skipped, "error"); res.errors.push(`${studio}: ${d.why}`); return; }
 
       const preview: AiBackOnPreview = { locationId: c.locationId, studio, contactId: c.contactId, name: d.first, touchAt: new Date(d.touchAt).toISOString(), touchBy: d.touchBy, text: d.text };
-      if (dryRun) { res.wouldSend!.push(preview); continue; }
+      if (dryRun) { res.wouldSend!.push(preview); return; }
 
-      // Send, then bring the AI back on and keep it on through CloseBot's shutoff.
+      // Last gates right before the text (no await between the checks and the counters).
+      if (elapsed() > SEND_DEADLINE_MS) { bump(res.later, "out of time this run"); return; }
+      if (!(await stillOn())) { stopped = true; bump(res.later, "switched off during the run"); return; }
+      if (res.sent + sending >= limit) { bump(res.later, "run limit"); return; }
+      if ((sentToday.get(c.locationId) ?? 0) >= PER_STUDIO_DAY) { bump(res.later, "studio daily cap"); return; }
       sentToday.set(c.locationId, (sentToday.get(c.locationId) ?? 0) + 1);
       sending++;
       try {
-        const s = await postSms(st.tok, c.contactId, d.text);
+        const s = await sendSms(st.tok, c.contactId, d.text);
         if (!s.ok) {
-          res.errors.push(`${studio}: send ${s.error ?? s.status}`);
-          sentToday.set(c.locationId, (sentToday.get(c.locationId) ?? 1) - 1);
-          await record({ contact_id: c.contactId, location_id: c.locationId, status: "failed", reason: s.error ?? `HTTP ${s.status}`, text: d.text, artist_touch_at: preview.touchAt, last_message_id: d.lastMessageId });
-          continue;
+          if (!s.unknown && (s.status === 429 || s.status >= 500)) {
+            // GHL busy: nothing went out — try again next run, no strike.
+            sentToday.set(c.locationId, (sentToday.get(c.locationId) ?? 1) - 1);
+            bump(res.later, "GHL busy on send");
+            return;
+          }
+          if (!s.unknown) sentToday.set(c.locationId, (sentToday.get(c.locationId) ?? 1) - 1);
+          // Unknown (timeout / network): it may have gone out — the thread check stops a second one.
+          res.errors.push(`${studio}: send ${s.unknown ? "unknown" : "failed"} — ${s.error ?? s.status}`);
+          await record({ contact_id: c.contactId, location_id: c.locationId, status: "failed", reason: `${s.unknown ? "unknown: " : ""}${s.error ?? `HTTP ${s.status}`}`, text: d.text, artist_touch_at: preview.touchAt, touch_by: d.touchBy, last_message_id: d.lastMessageId });
+          return;
         }
         res.sent++;
+        // Written before the AI step, so a cut-off run still remembers the text went out.
+        const rowId = await record({
+          contact_id: c.contactId, location_id: c.locationId, status: "sent", text: d.text, message_id: s.messageId,
+          artist_touch_at: preview.touchAt, touch_by: d.touchBy, last_message_id: d.lastMessageId, ai_result: "pending",
+        });
         const ai = await keepAiOn(st.tok, c.locationId, c.contactId, { messageId: s.messageId, text: d.text });
         bump(res.aiRestored, ai.result);
-        if (ai.result === "failed" || ai.result === "replied_during_restore") res.errors.push(`${studio}: AI ${ai.result}${ai.error ? ` — ${ai.error}` : ""} (contact ${c.contactId})`);
         res.sentList!.push({ ...preview, ai: ai.result });
-        await record({
-          contact_id: c.contactId, location_id: c.locationId, status: "sent", reason: null, text: d.text, message_id: s.messageId,
-          artist_touch_at: preview.touchAt, touch_by: d.touchBy, last_message_id: d.lastMessageId, ai_result: ai.result, ai_tags_after: ai.tagsAfter,
-        });
+        if (rowId != null) await svc.from(TABLE).update({ ai_result: ai.result, ai_tags_after: ai.tagsAfter }).eq("id", rowId);
+        if (ai.result === "failed" || ai.result === "replied_during_restore") {
+          res.errors.push(`${studio}: AI ${ai.result}${ai.error ? ` — ${ai.error}` : ""} (contact ${c.contactId})`);
+          const filed = await fileAlert(svc, {
+            type: "ai_back_on", severity: "high",
+            title: `${studio}: ${d.first} got the AI check-in, but ${ai.result === "failed" ? "the AI did not switch back on" : "she replied while the AI was switching back on"} — please answer her`,
+            detail: `Check-in sent: "${d.text}". The artist's last text or call was ${preview.touchAt.slice(0, 10)}. ${ai.error ?? ""}`.trim(),
+            source_key: `ai_back_on:${c.contactId}`,
+            meta: { link: `https://app.gohighlevel.com/v2/location/${c.locationId}/contacts/detail/${c.contactId}`, contact_name: d.first, location_id: c.locationId, contact_id: c.contactId, result: ai.result },
+          }).catch(() => false);
+          if (filed) res.alerts++;
+        }
       } finally {
         sending--;
       }
     }
-  }));
-  res.unchecked = Math.max(0, cands.length - res.checked);
-  return res;
+
+    await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
+      for (;;) {
+        if (stopped) return;
+        if (elapsed() > budget) { res.partial = true; return; }
+        if (!dryRun && res.sent + sending >= limit) return;
+        const c = cands[next++];
+        if (!c) return;
+        try {
+          await one(c);
+        } catch (e) {
+          // A worker never dies: the others may be in the middle of switching an AI back on.
+          bump(res.skipped, "error");
+          res.errors.push(`${c.contactId}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }));
+    res.unchecked = Math.max(0, cands.length - res.checked);
+  }
 }
