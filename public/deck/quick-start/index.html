@@ -538,9 +538,11 @@ ul.bullets.one-line li{white-space:nowrap;font-size:23px}
   border-radius:14px;padding:13px 24px;box-shadow:0 18px 40px -22px rgba(46,196,198,.9)}
 .incl-total span{font-family:Poppins,sans-serif;font-weight:700;font-size:18px;letter-spacing:.14em;text-transform:uppercase}
 .incl-total b{position:relative;font-family:Poppins,sans-serif;font-weight:800;font-size:50px;line-height:1;font-variant-numeric:tabular-nums}
-.incl-total b::after{content:"";position:absolute;left:-10px;right:-10px;top:50%;height:7px;margin-top:-4px;background:#ff3b30;border-radius:4px;
-  box-shadow:0 1px 5px rgba(0,0,0,.28);transform:rotate(-7deg) scaleX(0);transform-origin:left center;transition:transform .5s cubic-bezier(.2,.8,.3,1)}
-.incl-total b.cut::after{transform:rotate(-7deg) scaleX(1)}
+.incl-total b::after{content:"";position:absolute;left:-10px;right:-10px;top:50%;height:7px;margin-top:-2px;background:#ff3b30;border-radius:4px;
+  box-shadow:0 1px 5px rgba(0,0,0,.28);transform-origin:center;
+  /* tilted around the MIDDLE of the number (so it sits on the digits), drawn in from its left end */
+  transform:rotate(-7deg) translateX(-50%) scaleX(0) translateX(50%);transition:transform .5s cubic-bezier(.2,.8,.3,1)}
+.incl-total b.cut::after{transform:rotate(-7deg) translateX(-50%) scaleX(1) translateX(50%)}
 .incl-card.pay{flex:1;border:2px solid var(--teal);background:var(--teal-soft);padding:26px 30px}
 .incl-card.pay ul{gap:20px;justify-content:flex-start}
 .pay-zero{display:flex;align-items:baseline;gap:14px;margin:2px 0 22px;padding-bottom:20px;border-bottom:1px dashed #9fdcdc}
@@ -840,7 +842,7 @@ live(21,"Everything you get",(function(){
   '</div>'+
 '</div>';
 })());
-SLIDES[SLIDES.length-1].th="t-qs-included5";
+SLIDES[SLIDES.length-1].th="t-qs-included6";
 
 /* ---- quick start: next steps ---- */
 live(22,"Let&rsquo;s get you started",
