@@ -62,25 +62,33 @@ sub('orig(6,"Easy Bookings On Demand");\n', NAME)
 
 # --- drop guarantee (18), calculator (19), prices (20); put the two new slides there
 NEW = r'''/* ---- quick start: everything included ---- */
-live(21,"Everything you get",
-HEAD_NEW(11)+
-'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:22px">Everything You Get With Us</h1>'+
+live(21,"Everything you get",(function(){
+  /* [name, line under it, value in dollars] — the values are what each piece
+     would cost bought on its own; the total is added up here, never typed. */
+  var MAIN=[["Facebook &amp; Instagram ads","Built, monitored and optimized for you",1497],
+            ["Lead qualification funnel","Only real buyers reach your phone",997],
+            ["Instant lead alerts","Every qualified lead lands on your phone",197],
+            ["Your CRM","Every lead and every answer in one place",297],
+            ["Smart AI PMU Assistant","Replies in 2 minutes and warms them up for you",997]],
+      BONUS=[["Client education videos","Clients learn about PMU before they speak to you",497],
+             ["PMU Success Society","Our private group for PMU artists",497]],
+      tot=0;
+  function usd(n){return "$"+n.toLocaleString("en-US");}
+  function row(base){return function(r,k){tot+=r[2];
+    return '<li class="rx" style="animation-delay:'+(base+k*0.085)+'s"><i>'+CK+'</i><div><b>'+r[0]+'</b><span>'+r[1]+'</span></div>'+
+      '<em class="val">'+usd(r[2])+'<small>value</small></em></li>';};}
+  var main=MAIN.map(row(0.24)).join(''), bonus=BONUS.map(row(0.5)).join('');
+  return HEAD_NEW(11)+
+'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:18px">Everything You Get With Us</h1>'+
 '<div class="incl">'+
-  '<div class="incl-card main rv" style="animation-delay:.14s"><h3>Your Deposit-First Booking System</h3><ul>'+
-    [["Facebook &amp; Instagram ads","Built, monitored and optimized for you"],
-     ["Lead qualification funnel","Only real buyers reach your phone"],
-     ["Instant lead alerts","Every qualified lead lands on your phone"],
-     ["Your CRM","Every lead and every answer in one place"],
-     ["Smart AI PMU Assistant","Replies in 2 minutes and warms them up for you"]
-    ].map(function(r,k){return '<li class="rx" style="animation-delay:'+(0.24+k*0.085)+'s"><i>'+CK+'</i><div><b>'+r[0]+'</b><span>'+r[1]+'</span></div></li>';}).join('')+
-  '</ul></div>'+
-  '<div class="incl-card side rv" style="animation-delay:.22s"><h3>Bonuses</h3><ul>'+
-    [["Client education videos","Clients learn about PMU before they speak to you"],
-     ["PMU Success Society","Our private group for PMU artists"]
-    ].map(function(r,k){return '<li class="rx" style="animation-delay:'+(0.5+k*0.085)+'s"><i>'+CK+'</i><div><b>'+r[0]+'</b><span>'+r[1]+'</span></div></li>';}).join('')+
-  '</ul></div>'+
-'</div>');
-SLIDES[SLIDES.length-1].th="t-qs-included2";
+  '<div class="incl-card main rv" style="animation-delay:.14s"><h3>Your Deposit-First Booking System</h3><ul>'+main+'</ul></div>'+
+  '<div class="incl-col">'+
+    '<div class="incl-card side rv" style="animation-delay:.22s"><h3>Bonuses</h3><ul>'+bonus+'</ul></div>'+
+    '<div class="incl-total rv" style="animation-delay:.7s"><span>Total value</span><b id="incl-total" data-n="'+tot+'">'+usd(tot)+'</b></div>'+
+  '</div>'+
+'</div>';
+})());
+SLIDES[SLIDES.length-1].th="t-qs-included3";
 
 /* ---- quick start: next steps ---- */
 live(22,"Let&rsquo;s get you started",
@@ -125,7 +133,7 @@ AIJS = r'''/* ---- quick start: the AI conversation ---- */
    before/after pictures; loaded up front so they do not pop in late */
 ["ai-brow1","ai-brow2"].forEach(function(n){var im=new Image();im.src="/deck/assets/"+n+".jpg";});
 var AICHAT=[
-  {o:1,t:"Hi, this is Megan \ud83d\udc85"},
+  {o:1,t:"Hi, this is Megan"},
   {o:1,t:"I just got a request from that number for permanent makeup eyebrows, is it Vikki?"},
   {o:0,t:"Yes"},
   {o:1,t:"Great! I\u2019d love to see how we can help. We customise our services based on your goals. Can you let me know what made you reach out? That way, I can see if we\u2019re a good fit. :)"},
@@ -133,6 +141,19 @@ var AICHAT=[
   {o:0,t:"My eyebrows are thinning. I\u2019ve always had full brows but this year noticeably thinning. I don\u2019t want to have to pencil in daily for sure. I\u2019m 54"},
   {o:0,pics:2}
 ];
+/* "Everything you get": the total counts up from $0 each time the slide opens */
+var totEl=document.getElementById("incl-total"),totT=[];
+function runTotal(){
+  totT.forEach(clearTimeout);totT=[];
+  var n=+totEl.dataset.n,steps=36;
+  totEl.textContent="$0";
+  for(var k=1;k<=steps;k++)(function(k){
+    totT.push(setTimeout(function(){
+      var e=1-Math.pow(1-k/steps,3);   // ease out
+      totEl.textContent="$"+Math.round(n*e).toLocaleString("en-US");
+    },1100+k*34));
+  })(k);
+}
 var aiBody=document.getElementById("ai-body"),aiT=[];
 function aiTrim(){while(aiBody.scrollHeight>aiBody.clientHeight&&aiBody.children.length>1) aiBody.removeChild(aiBody.children[0]);}
 function runAi(){
@@ -157,7 +178,7 @@ function runAi(){
 
 '''
 sub("/* ---- slide 11: draggable pipeline ---- */", AIJS + "/* ---- slide 11: draggable pipeline ---- */")
-sub("  if(num===11) runCrm();\n", "  if(num===11) runCrm();\n  if(num===23) runAi();\n")
+sub("  if(num===11) runCrm();\n", "  if(num===11) runCrm();\n  if(num===23) runAi();\n  if(num===21) runTotal();\n")
 
 # --- "all slides" grid: own thumbnails for the new slides, position instead of the old slide number
 sub("""<img src="/deck/assets/thumbs/t-'+pad(s.n)+'.jpg" alt="" loading="lazy">""", """<img src="/deck/assets/thumbs/'+(s.th||('t-'+pad(s.n)))+'.jpg" alt="" loading="lazy">""")
@@ -170,11 +191,23 @@ CSS = '''
 .incl{position:relative;z-index:2;flex:1;min-height:0;display:flex;gap:26px;align-items:stretch;padding-bottom:26px}
 .incl-card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:30px 34px;
   box-shadow:0 18px 40px -26px rgba(20,25,35,.45);display:flex;flex-direction:column}
-.incl-card.main{flex:1.45}
+.incl-card.main{flex:1.38}
+.incl-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:20px}
+.incl-col .incl-card.side{flex:1}
+.incl-card li>div{min-width:0}
+.incl-card li .val{margin-left:auto;padding-left:18px;flex:none;text-align:right;font-style:normal;white-space:nowrap;
+  font-family:Poppins,sans-serif;font-weight:700;font-size:29px;line-height:1.2;color:var(--teal-dark)}
+.incl-card li .val small{display:block;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8a94a0}
+.incl-card.side li b{font-size:25px}
+.incl-card.side li span{font-size:20px}
+.incl-total{flex:none;display:flex;align-items:center;justify-content:space-between;gap:18px;background:var(--teal);color:#fff;
+  border-radius:18px;padding:20px 30px;box-shadow:0 22px 50px -24px rgba(46,196,198,.9)}
+.incl-total span{font-family:Poppins,sans-serif;font-weight:700;font-size:20px;letter-spacing:.14em;text-transform:uppercase}
+.incl-total b{font-family:Poppins,sans-serif;font-weight:800;font-size:66px;line-height:1;font-variant-numeric:tabular-nums}
 .incl-card.side{flex:1;border-color:var(--teal);background:var(--teal-soft)}
 .incl-card h3{margin:0 0 20px;font-family:Poppins,sans-serif;font-size:18px;font-weight:700;letter-spacing:.14em;
   text-transform:uppercase;color:var(--teal-dark)}
-.incl-card ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:24px;flex:1;justify-content:center}
+.incl-card ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:20px;flex:1;justify-content:center}
 .incl-card li{display:flex;gap:18px;align-items:flex-start}
 .incl-card li i{flex:none;width:36px;height:36px;border-radius:50%;background:var(--teal);color:#fff;
   display:grid;place-items:center;margin-top:2px;box-shadow:0 2px 8px rgba(46,196,198,.35)}
