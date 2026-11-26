@@ -113,6 +113,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     });
   } catch (e) {
     console.error("esign pdf build failed", e);
+    /* Vercel logs are not readable from here — leave a trace in the DB. */
+    const err = e instanceof Error ? `${e.message}\n${(e.stack ?? "").slice(0, 1500)}` : String(e);
+    await svc.from("app_settings").upsert({ key: "esign_last_error", value: { at: new Date().toISOString(), id: row.id, err }, updated_at: new Date().toISOString() }).then(() => null, () => null);
     return deny("Could not build the signed copy — please try again", 500);
   }
   const pdfPath = `signed/${row.id}-${nonce}.pdf`;

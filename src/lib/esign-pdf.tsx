@@ -13,7 +13,15 @@ import { CONSENT_TEXT, TEMPLATE_LABELS, usDate, usDateTime, type EsignTemplateId
 let logoCache: string | null = null;
 async function logo(): Promise<string> {
   if (logoCache) return logoCache;
-  const buf = await readFile(path.join(process.cwd(), "public", "brand-logo.png"));
+  /* Disk first (bundled via outputFileTracingIncludes); if the file was not
+     shipped with the function, fetch the public copy instead. */
+  let buf: Buffer | null = null;
+  try { buf = await readFile(path.join(process.cwd(), "public", "brand-logo.png")); } catch { /* try the web copy */ }
+  if (!buf) {
+    const r = await fetch("https://book.pmu-care.com/brand-logo.png", { cache: "no-store" });
+    if (!r.ok) throw new Error(`logo fetch ${r.status}`);
+    buf = Buffer.from(await r.arrayBuffer());
+  }
   logoCache = `data:image/png;base64,${buf.toString("base64")}`;
   return logoCache;
 }
