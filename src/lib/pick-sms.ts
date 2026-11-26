@@ -218,7 +218,7 @@ async function recentThread(tok: string, locationId: string, contactId: string):
 }
 /* GHL's clock and ours differ by up to a minute (seen 11/21), so every
    thread comparison uses GHL's own time of OUR message as the zero point. */
-const AUTOMATED_SOURCES = ["workflow", "campaign", "bulk_actions", "trigger", "automation"];
+export const AUTOMATED_SOURCES = ["workflow", "campaign", "bulk_actions", "trigger", "automation"];
 
 export type AiRestore = {
   result: "ok" | "ok_no_shutoff_seen" | "artist_took_over" | "replied_during_restore" | "failed";

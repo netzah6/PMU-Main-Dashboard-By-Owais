@@ -39,7 +39,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked" | "double_booking" | "ig_drop" | "closebot_missing" | "closebot_not_v3" | "closebot_check" | "agent_logins" | "funnel_widgets" | "pay_date" | "onebox_notify" | "discovery_no_call" | "sms_limit";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked" | "double_booking" | "ig_drop" | "closebot_missing" | "closebot_not_v3" | "closebot_check" | "agent_logins" | "funnel_widgets" | "pay_date" | "onebox_notify" | "discovery_no_call" | "sms_limit" | "ai_back_on";
   severity?: "high" | "medium";
   title: string;
   detail?: string;

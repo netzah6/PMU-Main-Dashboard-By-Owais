@@ -33,6 +33,7 @@ const TYPE_META: Record<string, { label: string; icon: string; chip: string }> =
   onebox_notify: { label: "No booking texts", icon: "🔕", chip: "bg-orange-50 text-orange-700 border-orange-200" },
   discovery_no_call: { label: "Discovery lead not called", icon: "📞", chip: "bg-red-50 text-red-700 border-red-200" },
   sms_limit: { label: "Text limit reached", icon: "📵", chip: "bg-red-50 text-red-700 border-red-200" },
+  ai_back_on: { label: "Check-in: answer her", icon: "💬", chip: "bg-red-50 text-red-700 border-red-200" },
 };
 
 function typeMeta(t: string) {
