@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
   /* B2B (agency artist-acquisition) funnel: different questions, its own
      tag, contact fields addressed by id from extras.b2b.fieldMap, and no
      disqualify rules — the agency's own workflows do the routing. */
-  const extras = (client.extras ?? {}) as { template?: string; b2b?: { tag?: string; fieldMap?: Record<string, string> } };
+  const extras = (client.extras ?? {}) as { template?: string; b2b?: { tag?: string; fieldMap?: Record<string, string> }; leadTag?: string };
   const isB2B = extras.template === "b2b";
 
   const answers: Record<string, string> = isB2B
@@ -247,6 +247,20 @@ export async function POST(req: NextRequest) {
   });
   const contactId = push.contactId;
   const ghlStatus = contactId ? "created" : "failed";
+  /* Second studio on the same account (extras.leadTag): its own tag, so GHL
+     puts these leads in their own pipeline stage. Added on top, never instead
+     of the survey tag: every follow-up still runs as for the first studio. */
+  const leadTag = String(extras.leadTag ?? "").trim();
+  if (contactId && leadTag && !isB2B) {
+    const tok = await getAppLocationToken(locationId).catch(() => ({ token: undefined as string | undefined }));
+    if (tok.token) {
+      await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ tags: [leadTag] }),
+      }).then((r) => { if (!r.ok) console.error("[onebox/submit] lead tag failed:", r.status); }, (e) => console.error("[onebox/submit] lead tag failed:", e));
+    }
+  }
   if (push.error) console.error("[onebox/submit] GHL upsert failed:", push.error);
 
   /* Ad click data, kept with the lead (owner 11/10/2026): about 6 in 10

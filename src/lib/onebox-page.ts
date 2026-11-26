@@ -73,6 +73,14 @@ export type OneboxRow = {
     igPicks?: IgPicks;
     gReviews?: GReviews;
     gWidgetOff?: boolean;
+    /* A second studio on the same GHL account (owner, 11/26/2026, Ink by
+       Britt's Mesquite studio): the custom values belong to the account, so
+       this funnel's own address replaces the one they give. The page shows
+       it everywhere it shows the address (survey, map, confirmation). */
+    address?: string;
+    /* Added to every contact from this funnel, so GHL can put them in their
+       own pipeline stage and the team can tell the studios apart. */
+    leadTag?: string;
   };
 };
 
@@ -149,6 +157,7 @@ export function buildFunnelPage(row: OneboxRow, req: { expId: string; expVkey: s
   const { expId, expVkey, isPay } = req;
   const cfg: Record<string, string> = {
     ...row.config,
+    ...(row.extras.address?.trim() ? { address: row.extras.address.trim() } : {}),
     slug: row.slug,
     locationId: row.location_id,
     submitUrl: "/api/onebox/submit",

@@ -35,6 +35,22 @@ export async function GET(req: NextRequest) {
   if (!client) {
     return NextResponse.json({ ok: false }, { status: 404, headers: { "Cache-Control": "no-store" } });
   }
+  /* Two studios on one GHL account (owner, 11/26/2026, Ink by Britt): the
+     AI's pay link always names the account's first funnel. A lead who came
+     through the other studio's funnel is sent to that one, so she sees her
+     own studio's address and her booking stays with her funnel. */
+  if (!lead) {
+    const { data: other } = await svc.from("onebox_leads").select("slug")
+      .eq("location_id", client.location_id as string).eq("ghl_contact_id", t).neq("slug", slug)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const goSlug = String((other as { slug?: string } | null)?.slug ?? "");
+    if (goSlug) {
+      const { data: sib } = await svc.from("onebox_clients").select("status").eq("slug", goSlug).maybeSingle();
+      if ((sib as { status?: string } | null)?.status === "live") {
+        return NextResponse.json({ ok: true, goSlug }, { headers: { "Cache-Control": "no-store" } });
+      }
+    }
+  }
   /* One GHL read serves two needs: the reserved time the AI may have
      agreed in chat, and — for leads who never came through the one-box
      (everyone from before the client's traffic moved, plus anyone the AI
