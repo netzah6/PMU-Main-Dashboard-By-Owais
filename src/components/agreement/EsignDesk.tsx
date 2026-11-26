@@ -69,7 +69,7 @@ function fieldSummary(t: EsignTemplateId, v: FieldValues): string {
   try {
     const p = placeholderValues(t, v);
     return t === "ppa"
-      ? `${p.fee} fee + ${p.deposit} deposit (total ${p.total}) · ads ${p.ad_spend}/mo`
+      ? `${p.fee} fee + ${p.deposit} deposit (total ${p.total}) · ads ${p.ad_spend}`
       : `${p.program_length} · ${p.price_terms} · ads ${p.ad_spend}/mo · ${p.guarantee_bookings} bookings ${p.guarantee_period}`;
   } catch { return ""; }
 }
