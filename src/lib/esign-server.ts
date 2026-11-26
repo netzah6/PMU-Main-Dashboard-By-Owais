@@ -155,6 +155,27 @@ export function noStoreHeaders(): Record<string, string> {
  *  Agreements" sheet and tags the contact "signed". It sends nothing to the
  *  client. */
 export const SIGNED_SLACK_WORKFLOW_ID = "6504035d-832a-4924-857c-59f3bc2e4d32";
+/* #agreements-signed — the channel that workflow posts to. Used directly when
+   the signer has no GHL contact, or the workflow could not be started, so
+   EVERY signing reaches Slack (owner, 11/26/2026). Same line as the workflow. */
+export const SIGNED_SLACK_CHANNEL_ID = "C05NR4JV91T";
+
+export async function postSignedToSlack(name: string): Promise<string> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) return "Slack not sent (no bot token)";
+  try {
+    const r = await fetch("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ channel: SIGNED_SLACK_CHANNEL_ID, text: `${name} just signed the agreement! 🤝📄` }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    return j.ok ? "Slack line sent" : `Slack not sent (${j.error ?? r.status})`;
+  } catch (e) {
+    return `Slack not sent: ${String(e instanceof Error ? e.message : e).slice(0, 80)}`;
+  }
+}
 
 function e164(phone: string | null | undefined): string {
   const d = String(phone ?? "").replace(/\D/g, "");
@@ -192,7 +213,10 @@ export async function ghlAfterSigning(row: {
        tag on it) could start other agency automations that text the client,
        and those were not checked (owner rule: no client messages without
        approval). The team sees this note and can add the contact by hand. */
-    if (!contactId) return { contactId: null, note: "No GHL contact with this email/phone - Slack line not sent" };
+    if (!contactId) {
+      const slackNote = await postSignedToSlack((row.signer_name || row.partner_name).trim());
+      return { contactId: null, note: `No GHL contact with this email/phone · ${slackNote}` };
+    }
 
     // Note on the contact.
     try {
@@ -210,12 +234,20 @@ export async function ghlAfterSigning(row: {
     // Slack line + sheet row + "signed" tag, via the existing workflow.
     try {
       const w = await enrollInWorkflow(SIGNED_SLACK_WORKFLOW_ID, [contactId], { timeoutMs: 8000, tries: 2 });
-      steps.push(w.ok.length ? "Slack workflow started" : `Slack workflow failed (${w.failed[0]?.error ?? "unknown"})`);
-    } catch (e) { steps.push(`Slack workflow failed: ${String(e instanceof Error ? e.message : e).slice(0, 80)}`); }
+      if (w.ok.length) steps.push("Slack workflow started");
+      else {
+        steps.push(`Slack workflow failed (${w.failed[0]?.error ?? "unknown"})`);
+        steps.push(await postSignedToSlack((row.signer_name || row.partner_name).trim()));
+      }
+    } catch (e) {
+      steps.push(`Slack workflow failed: ${String(e instanceof Error ? e.message : e).slice(0, 80)}`);
+      steps.push(await postSignedToSlack((row.signer_name || row.partner_name).trim()));
+    }
 
     return { contactId, note: steps.join(" · ").slice(0, 400) };
   } catch (e) {
     steps.push(`GHL failed: ${String(e instanceof Error ? e.message : e).slice(0, 160)}`);
+    if (!steps.some((x) => x.startsWith("Slack"))) steps.push(await postSignedToSlack((row.signer_name || row.partner_name).trim()));
     return { contactId, note: steps.join(" · ").slice(0, 400) };
   }
 }

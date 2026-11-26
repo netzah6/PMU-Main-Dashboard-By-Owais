@@ -370,7 +370,7 @@ export function fingerprintText(a: Agreement): string {
   return `${agreementToText(a)}\n${a.footer}`;
 }
 
-export const CONSENT_TEXT = "I agree to use electronic records and signatures, and I have read and agree to this agreement.";
+export const CONSENT_TEXT = "I agree to use electronic records and signatures, and I have read and agree to this Scope of Service.";
 
 export const settingsKey = (t: EsignTemplateId) => `esign_template_${t}`;
 

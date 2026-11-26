@@ -181,10 +181,10 @@ export function AgreementPdf({ agreement, partnerName, logoSrc, signature, docRe
             </View>
           </View>
           <Text style={s.heading}>Document</Text>
-          <CertRow label="Fingerprint (SHA-256 of the agreement text)" value={certificate.fingerprint} mono />
+          <CertRow label="Fingerprint (SHA-256 of the document text)" value={certificate.fingerprint} mono />
           <CertRow label="Consent" value={`"${certificate.consent}" (ticked by the signer before signing)`} />
           <Text style={s.certDone}>{`Document completed by all parties on ${certificate.completedOn} (UTC)`}</Text>
-          <Text style={s.certNote}>{"Signed electronically on PMU Bookings On Demand's own signing page. The fingerprint above is taken over the full agreement text frozen when the signing link was created; any change to that text gives a different fingerprint."}</Text>
+          <Text style={s.certNote}>{"Signed electronically on PMU Bookings On Demand's own signing page. The fingerprint above is taken over the full document text frozen when the signing link was created; any change to that text gives a different fingerprint."}</Text>
           <Chrome footer={agreement.footer} docRef={docRef} />
         </Page>
       )}

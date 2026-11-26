@@ -196,14 +196,14 @@ export function SignClient({ token }: { token: string }) {
   }
 
   if (loadErr) return <Shell><div className="rounded-2xl border border-[#e2e8f0] bg-white p-6 text-center text-[14px] text-[#1f3559]">{loadErr}</div></Shell>;
-  if (!view) return <Shell><div className="flex items-center justify-center gap-2 p-10 text-[14px] text-[#697a91]"><Loader2 size={16} className="animate-spin" /> Loading your agreement…</div></Shell>;
+  if (!view) return <Shell><div className="flex items-center justify-center gap-2 p-10 text-[14px] text-[#697a91]"><Loader2 size={16} className="animate-spin" /> Loading your Scope of Service…</div></Shell>;
 
   if (view.status === "signed") {
     return (
       <Shell brand={false}>
         <div className="rounded-2xl border border-[#c7edd4] bg-white p-6 text-center space-y-3 shadow-sm">
           <CheckCircle2 size={36} className="mx-auto text-[#15803d]" />
-          <h1 className="text-[20px] font-bold text-[#14532d]">Agreement signed</h1>
+          <h1 className="text-[20px] font-bold text-[#14532d]">Scope of Service signed</h1>
           <p className="text-[13px] text-[#166534]">
             {view.signerName ? `${view.signerName} signed` : "Signed"} on {usDate(view.signedAt, tzNow())}. Thank you!
           </p>
@@ -225,7 +225,7 @@ export function SignClient({ token }: { token: string }) {
     <Shell brand={false}>
       <div className="rounded-2xl border border-[#e2e8f0] bg-white p-4 sm:p-5 flex items-center gap-3 flex-wrap shadow-sm">
         <div className="min-w-0 flex-1">
-          <h1 className="text-[16px] sm:text-[18px] font-bold text-[#0f172a]">Please review and sign your agreement</h1>
+          <h1 className="text-[16px] sm:text-[18px] font-bold text-[#0f172a]">Please review and sign your Scope of Service</h1>
           <p className="text-[13px] text-[#475569] mt-0.5">Read it below, then sign at the bottom. It takes about a minute.</p>
         </div>
         <a href="#sign" className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0f172a] text-white text-[13px] font-semibold shrink-0">
@@ -279,7 +279,7 @@ export function SignClient({ token }: { token: string }) {
             {err && <p className="text-[13px] text-[#e11d48] bg-[#fde8ee] border border-[#f5c2cf] rounded-lg px-3 py-2">{err}</p>}
             <button type="button" onClick={sign} disabled={!ready || busy}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-[#15B7AE] text-white text-[15px] font-bold disabled:opacity-50">
-              {busy ? <><Loader2 size={16} className="animate-spin" /> Signing…</> : <><PenLine size={16} /> Sign the agreement</>}
+              {busy ? <><Loader2 size={16} className="animate-spin" /> Signing…</> : <><PenLine size={16} /> Sign the Scope of Service</>}
             </button>
             </div>
           </div>

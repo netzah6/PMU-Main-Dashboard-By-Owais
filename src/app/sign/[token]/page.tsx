@@ -9,7 +9,7 @@ import { SignClient } from "./SignClient";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Sign your agreement — PMU Bookings On Demand",
+  title: "Sign your Scope of Service — PMU Bookings On Demand",
   robots: { index: false, follow: false, nocache: true },
   referrer: "no-referrer",
 };

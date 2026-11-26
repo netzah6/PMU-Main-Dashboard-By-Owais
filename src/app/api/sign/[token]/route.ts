@@ -46,7 +46,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
   const svc = createServiceClient();
   const { data: row } = await svc.from("agreement_signatures").select(ROW).eq("token", params.token).maybeSingle();
   if (!row) return deny("This link is not valid", 404);
-  if (row.status === "void") return deny("This agreement was cancelled. Please ask your PMU Bookings On Demand contact for a new link.", 410);
+  if (row.status === "void") return deny("This Scope of Service was cancelled. Please ask your PMU Bookings On Demand contact for a new link.", 410);
 
   // First open by the client → viewed. A team member checking the link
   // while logged in to the dashboard is not counted.
@@ -84,12 +84,12 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const svc = createServiceClient();
   const { data: row } = await svc.from("agreement_signatures").select(ROW).eq("token", params.token).maybeSingle();
   if (!row) return deny("This link is not valid", 404);
-  if (row.status === "void") return deny("This agreement was cancelled", 410);
+  if (row.status === "void") return deny("This Scope of Service was cancelled", 410);
   if (row.status === "signed") return NextResponse.json(publicView(row), { status: 409, headers: noStoreHeaders() });
 
   // The text must be exactly what was sent.
   const content = parseAgreement(row.content);
-  if (!content || contentHash(content) !== row.content_sha256) return deny("This agreement could not be checked. Please ask for a new link.", 409);
+  if (!content || contentHash(content) !== row.content_sha256) return deny("This Scope of Service could not be checked. Please ask for a new link.", 409);
 
   const now = new Date().toISOString();
   const viewedAt = row.viewed_at ?? now;

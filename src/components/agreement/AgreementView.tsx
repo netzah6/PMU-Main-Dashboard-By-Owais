@@ -18,7 +18,7 @@ export function AgreementView({ agreement, partnerName, signatureSlot, meta }: {
           className="h-[60px] sm:h-[78px] w-auto object-contain shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="text-[17px] sm:text-[21px] font-extrabold tracking-tight text-[#0f172a] leading-tight">PMU Bookings On Demand</div>
-          <div className="text-[11px] sm:text-[12px] font-semibold uppercase tracking-[0.12em] text-[#0e9f99] mt-0.5">Partner Program Agreement</div>
+          <div className="text-[11px] sm:text-[12px] font-semibold uppercase tracking-[0.12em] text-[#0e9f99] mt-0.5">Partner Scope of Service</div>
         </div>
         {meta && <div className="w-full sm:w-auto text-[11px] sm:text-right text-[#64748b] leading-relaxed">{meta}</div>}
       </div>
