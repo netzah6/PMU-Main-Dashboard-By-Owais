@@ -11,7 +11,7 @@ const FUNNEL_HOST = "book.pmu-care.com";
    "pps"); /<slug> under it works like book.pmu-care.com. */
 const AGENCY_HOST = "book.pmubookingsondemand.com";
 const AGENCY_ROOT_SLUG = "pps";
-const RESERVED = new Set(["intake", "my-billing", "m", "api", "f", "s", "login", "auth", "deck", "roi-calculator", "manifest.webmanifest"]);
+const RESERVED = new Set(["intake", "my-billing", "m", "api", "f", "s", "login", "auth", "deck", "roi-calculator", "sign", "manifest.webmanifest"]);
 
 /* This repo is deployed by TWO Vercel projects (pmu-main-dashboard-by-owais
    and …-owais1). Production — tokens, custom domains — is the "1" one; the
@@ -159,8 +159,10 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   // Client app (/m/<token>) and the standalone My Billing page: read-only,
   // opened by the client's secret link (demo stage — real sign-in comes next).
   const isPublicBilling = p.startsWith("/my-billing/") || p.startsWith("/m/") || p === "/m"; // "/m" = the client app's sign-in screen
+  // E-signature page: the client signs their agreement by its secret link (11/26/2026).
+  const isPublicSign = p.startsWith("/sign/");
 
-  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta && !isPublicFunnel && !isPublicDeck && !isPublicIntake && !isPublicBilling) {
+  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta && !isPublicFunnel && !isPublicDeck && !isPublicIntake && !isPublicBilling && !isPublicSign) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
