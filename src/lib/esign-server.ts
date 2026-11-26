@@ -180,8 +180,12 @@ export async function ghlAfterSigning(row: {
       const j = (await r.json().catch(() => ({}))) as { contact?: { id?: string } | null };
       return j.contact?.id ?? null;
     };
-    const emails = Array.from(new Set([row.partner_email, row.signer_email].map((e) => (e || "").trim().toLowerCase()).filter(Boolean)));
-    for (const e of emails) { if (!contactId) contactId = await find("email", e); }
+    // Search ONLY by what our team entered (partner email, then phone). The
+    // email the client types on the public page is never searched: it could
+    // match someone else's contact (wrong "signed" tag + Slack line).
+    const partnerEmail = (row.partner_email || "").trim().toLowerCase();
+    const signerEmail = (row.signer_email || "").trim().toLowerCase();
+    if (partnerEmail) contactId = await find("email", partnerEmail);
     const phone = e164(row.partner_phone);
     if (!contactId && phone) contactId = await find("number", phone);
 
@@ -194,13 +198,14 @@ export async function ghlAfterSigning(row: {
         headers: { ...H, "Content-Type": "application/json" },
         body: JSON.stringify({
           locationId: LOC, firstName: firstName || full, lastName: rest.join(" ") || undefined, name: full || undefined,
-          email: emails[0] || undefined, phone: phone || undefined, source: "E-Sign agreement",
+          email: partnerEmail || signerEmail || undefined, phone: phone || undefined, source: "E-Sign agreement",
         }),
         signal: AbortSignal.timeout(8000),
       });
-      const j = (await r.json().catch(() => ({}))) as { contact?: { id?: string } };
+      // Upsert can return an existing contact (same email/phone): `new` says which.
+      const j = (await r.json().catch(() => ({}))) as { contact?: { id?: string }; new?: boolean };
       contactId = j.contact?.id ?? null;
-      steps.push(contactId ? "Contact created" : `Contact create failed (${r.status})`);
+      steps.push(contactId ? (j.new === false ? "Contact matched" : "Contact created") : `Contact create failed (${r.status})`);
     }
     if (!contactId) return { contactId: null, note: steps.join(" · ") || "No GHL contact" };
 
@@ -219,7 +224,7 @@ export async function ghlAfterSigning(row: {
 
     // Slack line + sheet row + "signed" tag, via the existing workflow.
     try {
-      const w = await enrollInWorkflow(SIGNED_SLACK_WORKFLOW_ID, [contactId]);
+      const w = await enrollInWorkflow(SIGNED_SLACK_WORKFLOW_ID, [contactId], { timeoutMs: 8000, tries: 2 });
       steps.push(w.ok.length ? "Slack workflow started" : `Slack workflow failed (${w.failed[0]?.error ?? "unknown"})`);
     } catch (e) { steps.push(`Slack workflow failed: ${String(e instanceof Error ? e.message : e).slice(0, 80)}`); }
 

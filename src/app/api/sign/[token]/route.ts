@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
+import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { parseAgreement } from "@/lib/agreement";
@@ -137,14 +138,27 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
   // Go High Level: note on the contact + the "Agreement signed -> Slack
   // Channel" workflow (Slack line for the sales team). Runs only after the
-  // row is saved as signed, and never blocks or fails the signing.
-  try {
-    const r = await ghlAfterSigning({
-      id: row.id, template: row.template, partner_name: row.partner_name, partner_email: row.partner_email, partner_phone: row.partner_phone,
-      signer_name: signerName, signer_email: signerEmail, signed_at: now,
-    });
-    await svc.from("agreement_signatures").update({ ghl_contact_id: r.contactId, ghl_note: r.note }).eq("id", row.id);
-  } catch { /* ignore */ }
+  // row is saved as signed, AFTER the reply (waitUntil, off the client's
+  // clock), capped at 30 s so it ends well inside maxDuration. Never blocks
+  // or fails the signing.
+  const GHL_CAP_MS = 30_000;
+  waitUntil((async () => {
+    try {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const capped = new Promise<{ contactId: string | null; note: string }>((res) => {
+        timer = setTimeout(() => res({ contactId: null, note: "GHL timed out (30 s) - check the Slack channel" }), GHL_CAP_MS);
+      });
+      const r = await Promise.race([
+        ghlAfterSigning({
+          id: row.id, template: row.template, partner_name: row.partner_name, partner_email: row.partner_email, partner_phone: row.partner_phone,
+          signer_name: signerName, signer_email: signerEmail, signed_at: now,
+        }),
+        capped,
+      ]);
+      clearTimeout(timer);
+      await svc.from("agreement_signatures").update({ ghl_contact_id: r.contactId, ghl_note: r.note }).eq("id", row.id);
+    } catch { /* ignore */ }
+  })());
 
   return NextResponse.json(publicView(signed), { headers: noStoreHeaders() });
 }

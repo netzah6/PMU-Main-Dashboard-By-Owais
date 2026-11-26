@@ -127,6 +127,7 @@ export function EsignDesk() {
   const [data, setData] = useState<Data | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [t, setT] = useState<EsignTemplateId>("standard");
+  const [wt, setWt] = useState<EsignTemplateId>("standard");
   const [vals, setVals] = useState<Record<EsignTemplateId, FieldValues>>({ standard: defaultFields("standard"), ppa: defaultFields("ppa") });
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -377,14 +378,14 @@ export function EsignDesk() {
         <div className="rounded-xl border border-[#e4ebf2] bg-white p-3 space-y-3">
           <div className="flex items-center gap-1.5 flex-wrap">
             {TEMPLATE_IDS.map((id) => (
-              <button key={id} type="button" onClick={() => setT(id)}
-                className={`px-2.5 py-1.5 rounded-lg text-[12px] font-semibold border ${t === id ? "bg-[#15B7AE] text-white border-[#15B7AE]" : "bg-white text-[#34568a] border-[#d7e0ea]"}`}>
+              <button key={id} type="button" onClick={() => setWt(id)}
+                className={`px-2.5 py-1.5 rounded-lg text-[12px] font-semibold border ${wt === id ? "bg-[#15B7AE] text-white border-[#15B7AE]" : "bg-white text-[#34568a] border-[#d7e0ea]"}`}>
                 {TEMPLATE_LABELS[id]}{data.templates[id].overridden ? " · changed" : ""}
               </button>
             ))}
             <Link href="/agreement" className={`${btn} ml-auto border-[#d7e0ea] bg-white text-[#34568a]`}><FileSignature size={12} /> Old agreement builder</Link>
           </div>
-          <WordingEditor key={t} t={t} info={data.templates[t]} onSaved={load} />
+          <WordingEditor key={wt} t={wt} info={data.templates[wt]} onSaved={load} />
         </div>
       )}
     </div>
@@ -406,7 +407,7 @@ function SignedList({ data, q, setQ, focusId, busy, onDownload, showOlder, setSh
     .filter((o) => {
       const at = Date.parse(o.date);
       const n = norm(o.name);
-      return !ours.some((x) => x.names.includes(n) && (!Number.isFinite(at) || !Number.isFinite(x.at) || Math.abs(at - x.at) < 3 * 86400_000));
+      return !ours.some((x) => x.names.includes(n) && Number.isFinite(at) && Number.isFinite(x.at) && Math.abs(at - x.at) < 3 * 86400_000);
     })
     .filter((o) => !needle || norm(o.name).includes(needle))
     .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));

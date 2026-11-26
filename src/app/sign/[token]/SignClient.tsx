@@ -125,14 +125,20 @@ function typedPng(name: string): string | null {
 
 // Outside the page component on purpose: a component defined inside it
 // would remount on every keystroke (losing focus and the drawn signature).
-function Shell({ children }: { children: React.ReactNode }) {
+// `brand`: logo + name in the top bar. Off when the agreement itself is on
+// screen, since its letterhead already shows them (no double brand).
+function Shell({ children, brand = true }: { children: React.ReactNode; brand?: boolean }) {
   return (
     <div className="min-h-screen bg-[#eef2f6] overflow-x-hidden">
       <div className="bg-white border-b border-[#e2e8f0]">
         <div className="mx-auto w-full max-w-[860px] px-4 h-[52px] flex items-center gap-2.5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand-logo.png" alt="" width={350} height={280} className="h-[34px] w-auto object-contain" />
-          <span className="text-[14px] font-bold text-[#0f172a] truncate">PMU Bookings On Demand</span>
+          {brand && (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand-logo.png" alt="" width={350} height={280} className="h-[34px] w-auto object-contain" />
+              <span className="text-[14px] font-bold text-[#0f172a] truncate">PMU Bookings On Demand</span>
+            </>
+          )}
           <span className="ml-auto flex items-center gap-1 text-[11px] font-semibold text-[#0e9f99] shrink-0"><Lock size={12} /> Secure signing</span>
         </div>
       </div>
@@ -194,7 +200,7 @@ export function SignClient({ token }: { token: string }) {
 
   if (view.status === "signed") {
     return (
-      <Shell>
+      <Shell brand={false}>
         <div className="rounded-2xl border border-[#c7edd4] bg-white p-6 text-center space-y-3 shadow-sm">
           <CheckCircle2 size={36} className="mx-auto text-[#15803d]" />
           <h1 className="text-[20px] font-bold text-[#14532d]">Agreement signed</h1>
@@ -216,7 +222,7 @@ export function SignClient({ token }: { token: string }) {
 
   const input = "mt-1 w-full px-3 py-2.5 rounded-lg border border-[#cbd5e1] bg-white text-[15px] text-[#0f172a] focus:outline-none focus:border-[#15B7AE] focus:ring-2 focus:ring-[#15B7AE]/20";
   return (
-    <Shell>
+    <Shell brand={false}>
       <div className="rounded-2xl border border-[#e2e8f0] bg-white p-4 sm:p-5 flex items-center gap-3 flex-wrap shadow-sm">
         <div className="min-w-0 flex-1">
           <h1 className="text-[16px] sm:text-[18px] font-bold text-[#0f172a]">Please review and sign your agreement</h1>
