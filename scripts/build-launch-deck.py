@@ -67,6 +67,9 @@ TITLES = {
 # 66 is a page of spare illustrations, not a slide. Owner 11/26/2026: the journey is 3 steps — the "filter out"
 # picture (9) is now part of the booking-page slide (8), and the AI chat (11) left because the AI block later shows it.
 ORDER = [n for n in range(1, 71) if n not in (9, 11, 66)]
+# round 3 (11/26): real pipeline stages (16), $50 only (22-25), pictures on text-only slides (19, 26, 29, 46, 48, 68);
+# 4, 39, 54, 69 only get a fresh thumbnail (the old one was taken before their picture had loaded)
+R3 = (4, 16, 19, 22, 23, 24, 25, 26, 29, 39, 46, 48, 54, 68, 69)
 STEP = {12:1, 13:2, 14:3, 15:4, 18:5, 19:5, 20:6, 21:6, 22:7, 23:7}       # which of the 7 steps a slide is
 CALLING = (12, 13, 14, 18, 19, 20, 21, 55, 62, 65)                           # the "calling part"
 CHIP_POS = {21: "left:auto;right:150px;bottom:auto;top:34px", 55: "bottom:44px", 62: "bottom:44px", 65: "bottom:44px"}
@@ -183,10 +186,57 @@ def chips(n, ppa):
 
 ART = {2: "a02b"}           # 02b = the intro slide without the photo that was baked into it
 SKIP = {17: ("DISCLAIMER",)}
+# Small pictures on the slides that were text only (owner 11/26/2026: "some people understand better
+# through pictures"). Each one says the same thing as the text beside it — nothing new is claimed.
+def nd(icon, text, cls=""):
+    return '<span class="nd%s"><i>%s</i>%s</span>' % (" " + cls if cls else "", icon, text)
+AR, DN = '<span class="ar">&rarr;</span>', '<span class="ar">&darr;</span>'
+IG = {
+ 19: '<div class="ig vs" style="left:183px;top:664px">'
+     + '<span class="nd"><b>A</b><i>⏱</i>20 seconds &rarr; &ldquo;Book now?&rdquo;</span><em>or</em>'
+     + '<span class="nd"><b>B</b><i>💬</i>Asks &rarr; listens &rarr; then offers help</span></div>',
+ 26: '<div class="ig lanes" style="left:217px;top:626px">'
+     + '<div class="lane"><b class="who">🤝 Referral</b>' + nd("", "Already trusts you") + AR + nd("", "Ready to book ✅", "ok") + '</div>'
+     + '<div class="lane"><b class="who">📱 Online lead</b>' + nd("", "Sees your ad") + AR + nd("", "Needs info + trust", "hl") + AR + nd("", "Ready to book ✅", "ok") + '</div>'
+     + '<p class="cap">Not lower quality &mdash; just one step earlier.</p></div>',
+ 29: '<div class="ig grow" style="left:1140px;top:84px;width:410px">'
+     + '<div class="b"><em>🌱</em><i style="height:56px"></i><span>Day 30</span></div>'
+     + '<div class="b"><em>🔧</em><i style="height:104px"></i><span>Day 60</span></div>'
+     + '<div class="b"><em>🏆</em><i style="height:152px"></i><span>Day 90</span></div></div>',
+ 46: '<div class="ig vflow" style="left:1138px;top:312px;width:412px">'
+     + nd("💳", "Client pays the $50 deposit") + DN + nd("✅", "Appointment confirmed", "hl") + DN
+     + nd("🙋‍♀️", "Client shows up") + DN + nd("💰", "$50 comes off the first service", "ok") + '</div>',
+ 48: '<div class="ig hflow" style="left:106px;top:606px">'
+     + nd("📆", "Picks a date &amp; time", "big") + AR + nd("⏱", "10 minutes<br>to pay the deposit", "big hl") + AR
+     + '<div class="br">' + nd("💰", "Deposit paid &rarr; CONFIRMED", "ok") + nd("⌛", "No deposit &rarr; the slot is free again", "no") + '</div></div>',
+ 68: '<div class="ig duo" style="left:70px;top:574px;width:1460px">'
+     + '<div class="side"><h3>✅ You keep us updated</h3><div class="st">'
+     + nd("📊", "We see the numbers") + AR + nd("🔧", "We fix it right away") + AR + nd("📈", "Better results", "ok") + '</div></div>'
+     + '<div class="side bad"><h3>❌ We only hear about it after 30, 60, 90 days</h3><div class="st">'
+     + nd("❓", "No numbers to check") + AR + nd("⏳", "Time is lost") + AR + nd("📉", "Results suffer", "no") + '</div></div></div>',
+}
 EXTRA = {2: '<div class="coachpic" id="coach-box"><img id="coach-pic" alt=""><span class="ph"><img src="/deck/assets/brand-logo.png" alt=""></span>'
             '<b id="coach-name"></b></div>',
          17: '<div class="disc rv" style="animation-delay:.15s"><span class="warn">&#9888;&#65039;</span>'
              '<div><h2>DISCLAIMER</h2><p>If this is not done it will impact your results</p></div></div>'}
+EXTRA.update(IG)
+
+# Step 4 board: the 11 stages of the pipeline every client account has ("Booking opportunities"), in the
+# same order and with the same names — read live from three client accounts on 11/26/2026, and the same list
+# is on 158 of the 230 pipelines in ghl_stage_map (the rest add or drop a stage). Sample names and counts.
+STAGES = [
+ ("Very Hot-Lead (Filled Survey)🔥", 6, ("Anna Leyva", "Blanca Robles")),
+ ("2nd Attempt1️⃣", 14, ("Leticia Leon", "Rosa Guerra")),
+ ("3rd Attempt2️⃣", 21, ("Marisol Vega", "Caroline Reyes")),
+ ("Reactivation♻️3️⃣", 132, ("Claire Downey", "Veronica Davis")),
+ ("Call Later 📅", 9, ("Priya Nair", "Amy Whitfield")),
+ ("Text", 17, ("Mimi Carter", "Jessica Duarte")),
+ ("Deposit Reminder (Auto Follow-Up)🔔", 11, ("Hannah Boyd", "Tara Nguyen")),
+ ("Deposit Collected😍", 18, ("Anabella Fonseca", "Candy Lopez")),
+ ("Declining🔴", 347, ("Belen De Los Santos", "Kim Tran")),
+ ("Session Done✅", 3, ("Lisa Cortel", "Nichole Ochoa")),
+ ("5 Stars Google Review⭐", 12, ("Daya Soriano", "Jocelyn Bovian")),
+]
 
 # ------------------------------------------------------------------ new live slides (JS expressions)
 def J(s):
@@ -378,6 +428,57 @@ body.shot #nav,body.shot .hint,body.shot #bar{display:none!important}
 .ask.yes:hover{background:var(--teal-dark);border-color:var(--teal-dark)}
 .ask.no{background:#fff;color:var(--teal-dark)}
 .ask.no:hover{background:var(--teal-soft)}
+/* step 4 board: the 11 real stages, in two rows so every name can be read from across the room */
+.crm-cols{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:12px 9px}
+.crm-col{min-height:0;overflow:hidden}
+.crm-h{font-size:17px;line-height:1.22;white-space:normal;align-items:flex-start;min-height:53px}
+.crm-h em{font-size:14px;padding-top:2px}
+.crm-card{padding:9px 11px}
+.crm-card b{font-size:16px}
+.crm-tip{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;border:2px dashed var(--teal);
+  border-radius:12px;background:var(--teal-soft);color:#12706f;font-family:Poppins,sans-serif;font-size:19px;font-weight:500;line-height:1.3;padding:14px}
+.crm-tip i{font-style:normal;font-size:40px;line-height:1}
+.crm-tip b{font-weight:700}
+/* small pictures on the text-only slides */
+.ig{position:absolute;z-index:2;font-family:Poppins,sans-serif;color:var(--ink)}
+.ig .nd{display:inline-flex;align-items:center;gap:10px;background:#fff;border:2px solid var(--line);border-radius:16px;padding:13px 20px;
+  font-size:23px;font-weight:600;line-height:1.25;white-space:nowrap;box-shadow:0 8px 20px -14px rgba(13,15,18,.4)}
+.ig .nd i{font-style:normal;font-size:31px;line-height:1}
+.ig .nd i:empty{display:none}
+.ig .nd.ok{border-color:#34c759;background:#eefaf1;color:#156b33}
+.ig .nd.no{border-color:#f3b4b4;background:#fff1f1;color:#b42318}
+.ig .nd.hl{border-color:var(--teal);background:var(--teal-soft);color:#12706f}
+.ig .nd.big{flex-direction:column;gap:8px;padding:20px 32px;text-align:center;font-size:24px}
+.ig .nd.big i{font-size:56px}
+.ig .ar{color:var(--teal);font-size:34px;font-weight:700;line-height:1}
+.ig.vs{display:flex;align-items:center;gap:18px}
+.ig.vs em{font-style:normal;font-size:22px;color:#8a94a0}
+.ig.vs .nd{font-size:22px;padding:11px 20px}
+.ig.vs .nd b{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--teal);color:#fff;font-size:16px}
+.ig.lanes{display:flex;flex-direction:column;gap:14px}
+.ig.lanes .lane{display:flex;align-items:center;gap:14px}
+.ig.lanes .who{flex:none;width:250px;font-size:29px;font-weight:700}
+.ig.lanes .nd{font-size:26px}
+.ig.lanes .cap{margin:6px 0 0 264px;font-size:24px;font-weight:500;color:#5b6470}
+.ig.grow{display:flex;align-items:flex-end;gap:16px;padding:16px 22px 12px;background:rgba(255,255,255,.94);border:2px solid var(--line);border-radius:18px}
+.ig.grow .b{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
+.ig.grow .b i{display:block;width:100%;border-radius:10px 10px 0 0;background:#bfeeee}
+.ig.grow .b:last-child i{background:var(--teal)}
+.ig.grow .b span{font-size:19px;font-weight:600;color:#5b6470;white-space:nowrap}
+.ig.grow .b em{font-style:normal;font-size:34px;line-height:1}
+.ig.vflow{display:flex;flex-direction:column;align-items:center;gap:6px}
+.ig.vflow .nd{width:100%;white-space:normal}
+.ig.hflow{display:flex;align-items:center;gap:16px}
+.ig.hflow .br{display:flex;flex-direction:column;align-items:flex-start;gap:14px}
+.ig.hflow .br .nd{font-size:24px}
+.ig.duo{display:flex;gap:24px}
+.ig.duo .side{flex:1;min-width:0;background:#fff;border:3px solid #34c759;border-radius:20px;padding:18px 20px 20px;box-shadow:0 18px 40px -22px rgba(13,15,18,.5)}
+.ig.duo .side.bad{border-color:#e02424}
+.ig.duo h3{margin:0 0 14px;font-size:26px;font-weight:700;color:#156b33}
+.ig.duo .side.bad h3{color:#b42318}
+.ig.duo .st{display:flex;align-items:center;gap:8px}
+.ig.duo .st .nd{flex:1;min-width:0;flex-direction:column;gap:5px;padding:14px 8px;text-align:center;white-space:normal;font-size:21px;box-shadow:none}
+.ig.duo .st .nd i{font-size:44px}
 </style>'''
 
 HELPERS = r'''
@@ -465,12 +566,21 @@ def build(variant):
         b["runs"] = [dict(b["runs"][0], t="Optional — but artists who follow these 7 steps book more.", c="rgb(106, 168, 79)")]
         b = find_block(data, 25, "Can we get 100%")
         b["runs"] = [dict(b["runs"][0], t="Want to maximize your results? These 7 steps are how our top artists do it.")]
+    fifty = 0                                             # owner 11/26/2026: "only mention the $50 deposit, not the 25"
+    for sl in data.values():
+        for h in sl["shapes"]:
+            for b in h["blocks"]:
+                for r in b["runs"]:
+                    if "$25-$50" in r.get("t", ""):
+                        r["t"] = r["t"].replace("$25-$50", "$50"); fifty += 1
+    assert fifty == 4, ("$25-$50", fifty)
     js = [HELPERS]
     def th(n):
         changed = ppa and (n in CALLING or n in (6, 24, 25, 99))
         if n in (2, 30): return "t-lc-%02db" % n          # redone 11/26: no coach photo / team email
         if n in (7, 8, 10): return "t-lc-%02dc" % n       # redone 11/26: the 3-step journey
         if n == 99: return "t-lcp-99c"                    # redone 11/26: the two buttons
+        if n in R3: return ("t-lcp-%02dd" if changed else "t-lc-%02dd") % n
         return ("t-lcp-%02d" if changed else "t-lc-%02d") % n
     def meta(n, nn):
         return 'SLIDES[SLIDES.length-1].n=%d;SLIDES[SLIDES.length-1].t=%s;SLIDES[SLIDES.length-1].th=%s;' % (nn, J(H.escape(TITLES[n], quote=False)), J(th(n)))
@@ -499,6 +609,8 @@ def build(variant):
             js.append(a + meta(n, 10))
         elif n == 16:
             a = sub(CRM, ">Introducing the CRM</h1>'+", "><span class=\"eyebrow\">Our Simple 7 Steps Success Formula &middot; Step 4</span>Update The Dashboard Daily</h1>'+")
+            a = sub(a, '<span style="margin-left:auto">Booking pipeline</span>', "")          # owner 11/26/2026: remove those two words
+            a = sub(a, "1,260 opportunities", "{:,} opportunities".format(sum(c for _, c, _ in STAGES)))
             js.append(a + meta(n, 11))
         elif n == 37:
             live(n, slide_phishing())
@@ -515,6 +627,12 @@ def build(variant):
     s = sub(s, "<title>Quick Start Call — PMU Bookings On Demand</title>",
             "<title>Launch Call%s — PMU Bookings On Demand</title>" % (" (Pay Per Appointment)" if ppa else ""))
     s = sub(s, "</style>", CSS)
+    # ---- step 4 board: the real stages, two rows of columns, and a tip in the free cell
+    cols = part("var COLS=[", "var IC={", s)
+    s = sub(s, cols, "var COLS=" + J([{"h": h, "n": c, "names": list(names)} for h, c, names in STAGES]) + ";\n")
+    s = sub(s, """  }).join("");
+  var cards=wrap.querySelectorAll(".crm-card");""", """  }).join("")+'<div class="crm-tip"><i>&#128070;</i>Move each lead to its stage.<b>Every day.</b></div>';
+  var cards=wrap.querySelectorAll(".crm-card");""")
     # ---- engine: no FAQ slide here, open on #N, load art just ahead, number every card in the overview
     faq = part("var FAQDUR=", "show(0); window.focus();", s)
     s = sub(s, faq, "function stopFaqs(){}\n" + RUNNERS + "\n")
