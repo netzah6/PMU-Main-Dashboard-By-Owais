@@ -26,12 +26,16 @@ function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) => void
   const ref = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const points = useRef(0);
+  const lastW = useRef(0);
+  const [resized, setResized] = useState(false);
 
   const setup = useCallback(() => {
     const c = ref.current;
     if (!c) return;
+    setResized(false);
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const w = c.clientWidth, h = c.clientHeight;
+    lastW.current = w;
     c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
     const ctx = c.getContext("2d");
     if (!ctx) return;
@@ -42,6 +46,23 @@ function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) => void
   }, [onChange]);
 
   useEffect(() => { setup(); }, [setup]);
+
+  // The pad is sized once per width. When the width changes (phone rotation,
+  // window resize) the old scale would misplace the strokes, so the pad is
+  // reset and the signer is asked to sign again.
+  useEffect(() => {
+    const c = ref.current;
+    if (!c || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (Math.abs(c.clientWidth - lastW.current) < 1) return;
+      const had = points.current > 0;
+      drawing.current = false;
+      setup();
+      if (had) setResized(true);
+    });
+    ro.observe(c);
+    return () => ro.disconnect();
+  }, [setup]);
 
   const pos = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -75,7 +96,9 @@ function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) => void
         className="w-full h-[150px] rounded-lg border-2 border-dashed border-[#b8c7d9] bg-white touch-none cursor-crosshair"
         aria-label="Draw your signature here" />
       <div className="flex items-center justify-between mt-1">
-        <span className="text-[11px] text-[#8595a8]">Draw with your finger or mouse</span>
+        {resized
+          ? <span className="text-[11px] font-semibold text-[#b45309]">The screen changed size. Please sign again.</span>
+          : <span className="text-[11px] text-[#8595a8]">Draw with your finger or mouse</span>}
         <button type="button" onClick={setup} className="flex items-center gap-1 text-[12px] font-semibold text-[#34568a] px-2 py-1 rounded-lg border border-[#d7e0ea] bg-white">
           <Eraser size={12} /> Clear
         </button>

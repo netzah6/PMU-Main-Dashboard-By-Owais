@@ -47,7 +47,7 @@ export async function buildSignedPdf(x: SignedPdfInput): Promise<Buffer> {
       agreement={x.content}
       logoSrc={await logo()}
       docRef={ref}
-      signature={{ name: x.signerName, imageSrc: sig, dateText: usDate(x.signedAt, x.signerTimezone || "UTC") }}
+      signature={{ name: x.signerName, imageSrc: sig, dateText: `${usDate(x.signedAt)} (UTC)` }}
       certificate={{
         reference: ref,
         templateLabel: TEMPLATE_LABELS[x.template],

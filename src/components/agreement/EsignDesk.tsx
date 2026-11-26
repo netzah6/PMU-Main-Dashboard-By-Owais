@@ -5,7 +5,7 @@ import { Loader2, Link2, Copy, Check, Download, Ban, ChevronDown, ChevronRight, 
 import { AgreementView } from "@/components/agreement/AgreementView";
 import type { Agreement, Block } from "@/lib/agreement";
 import {
-  TEMPLATE_IDS, TEMPLATE_LABELS, defaultFields, validateFields, renderAgreement, placeholderValues, usDate, usDateTime,
+  TEMPLATE_IDS, TEMPLATE_LABELS, defaultFields, fieldLabel, validateFields, renderAgreement, placeholderValues, usDate, usDateTime,
   type EsignTemplateId, type FieldDef, type FieldValues,
 } from "@/lib/esign";
 
@@ -52,7 +52,7 @@ function fieldSummary(t: EsignTemplateId, v: FieldValues): string {
     const p = placeholderValues(t, v);
     return t === "ppa"
       ? `${p.fee} fee + ${p.deposit} deposit (total ${p.total}) · ads ${p.ad_spend}/mo`
-      : `${p.program_days} days · ${p.price_terms} · ads ${p.ad_spend}/mo · ${p.guarantee_bookings} bookings ${p.guarantee_period}`;
+      : `${p.program_length} · ${p.price_terms} · ads ${p.ad_spend}/mo · ${p.guarantee_bookings} bookings ${p.guarantee_period}`;
   } catch { return ""; }
 }
 
@@ -227,7 +227,7 @@ export function EsignDesk() {
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#eef3f8]">
             {fields.map((f) => (
               <label key={f.key} className={`block ${f.wide ? "col-span-2" : ""}`}>
-                <span className="text-[11px] font-semibold text-[#34568a]">{f.label}</span>
+                <span className="text-[11px] font-semibold text-[#34568a]">{fieldLabel(f, vals[t])}</span>
                 {f.type === "choice" ? (
                   <select value={String(vals[t][f.key])} onChange={(e) => setField(f.key, e.target.value)} className={input}>
                     {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

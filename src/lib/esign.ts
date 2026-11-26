@@ -40,20 +40,31 @@ export type FieldDef = {
   wide?: boolean;
   /** Only shown / used when another field has this value. */
   showIf?: { key: string; value: string };
+  /** Label that follows another field's value (e.g. "Price" per payment plan). */
+  labelBy?: { key: string; labels: Record<string, string> };
 };
 export type FieldValues = Record<string, string | number>;
 
 export const TEMPLATE_FIELDS: Record<EsignTemplateId, FieldDef[]> = {
   standard: [
-    { key: "program_days", label: "Program length (days)", type: "days", default: "150 + 60", hint: "Like 90, or 150 + 60" },
-    { key: "price", label: "Price", type: "money", default: 3985, min: 1, max: 50000 },
+    // (23) "150 + 60 days", (11–19) "90 days", (10) "5 + 2 extra months".
+    { key: "program_length", label: "Program length", type: "days", default: "150 + 60", hint: "Like 90, or 150 + 60" },
+    {
+      key: "program_unit", label: "Program length unit", type: "choice", default: "days",
+      options: [{ value: "days", label: "Days" }, { value: "months", label: "Months" }],
+    },
     {
       key: "payment_plan", label: "How they pay", type: "choice", default: "upfront", wide: true,
       options: [
         { value: "upfront", label: "All upfront" },
+        { value: "two", label: "2 payments (half now, half in 30 days)" },
         { value: "monthly", label: "Every month" },
         { value: "split", label: "Split in monthly payments" },
       ],
+    },
+    {
+      key: "price", label: "Total price", type: "money", default: 3985, min: 1, max: 50000,
+      labelBy: { key: "payment_plan", labels: { upfront: "Total price", two: "Total price (both payments)", monthly: "Price per month", split: "Amount of each payment" } },
     },
     { key: "payments", label: "Number of payments", type: "number", default: 3, min: 2, max: 12, showIf: { key: "payment_plan", value: "split" } },
     { key: "ad_spend", label: "Ad spend per month ($)", type: "range", default: "300-600", hint: "Like 300-600", min: 1, max: 20000 },
@@ -63,6 +74,8 @@ export const TEMPLATE_FIELDS: Record<EsignTemplateId, FieldDef[]> = {
       key: "guarantee_unit", label: "Guarantee time unit", type: "choice", default: "months",
       options: [{ value: "months", label: "Months" }, { value: "days", label: "Days" }],
     },
+    // (11–23) "5 strikes", (10) "10 strikes".
+    { key: "strikes", label: "Strikes before guarantee is void", type: "number", default: 5, min: 1, max: 50 },
   ],
   ppa: [
     { key: "fee", label: "Our fee per booking", type: "money", default: 65, min: 1, max: 1000 },
@@ -74,7 +87,7 @@ export const TEMPLATE_FIELDS: Record<EsignTemplateId, FieldDef[]> = {
 /** The placeholders each template must contain (an admin override that drops
  *  one is refused — the numbers would silently stop showing). */
 export const REQUIRED_PLACEHOLDERS: Record<EsignTemplateId, string[]> = {
-  standard: ["program_days", "price_terms", "ad_spend", "guarantee_bookings", "guarantee_period"],
+  standard: ["program_length", "price_terms", "ad_spend", "guarantee_bookings", "guarantee_period", "strikes"],
   ppa: ["fee", "deposit", "total", "ad_spend"],
 };
 
@@ -125,7 +138,7 @@ export const DEFAULT_TEMPLATES: Record<EsignTemplateId, Agreement> = {
     footer: FOOTER,
     blocks: [
       ...INTRO,
-      { type: "paragraph", text: "The program is a {{program_days}} days program where PMU Bookings On Demand will create, optimize, manage, and scale your paid traffic (Facebook & Instagram) permanent makeup campaign." },
+      { type: "paragraph", text: "The program is a {{program_length}} program where PMU Bookings On Demand will create, optimize, manage, and scale your paid traffic (Facebook & Instagram) permanent makeup campaign." },
       ...AFTER_INTRO,
       { type: "paragraph", text: "The partner will pay {{price_terms}} to PMU Bookings On Demand and {{ad_spend}}/mo which will be allocated to the ad spend." },
       { type: "paragraph", text: "Once completed the partner will decide if they wish to renew and credit card will automatically be charged for the next month, if they wish to cancel please inform us 72 hours in advance. Please note that a mandatory 30-minute exit interview is required to process the cancellation.\nThe partner may also decide to increase their ad-spend in the future." },
@@ -138,7 +151,7 @@ export const DEFAULT_TEMPLATES: Record<EsignTemplateId, Agreement> = {
       { type: "numbered", items: [
         "Since PMU Bookings On Demand can only guarantee results by using a proven system, the partner has to use PMU Bookings On Demand’s proven system ads.\nThe partner is not allowed to modify or change the ads.\nAny modifications asked or made by the partner will void both the bookings guarantee.",
         "The partner must allocate at least {{ad_spend}}/month for the ad spent. If the partner disagrees to invest for the ad spend, PMU Bookings On Demand cannot guarantee results.",
-        "When the partner receives a new lead in PMU Bookings On Demand’s CRM, the partner must calling the lead within 24 business hours otherwise the partner will get a strike, 5 strikes and the guarantee is voided.\nNot all leads answer on the first call. If a lead didn’t answer the partner’s calls, the partner must keep calling the lead at least 2 times in a row, otherwise the partner will get a strike. 5 strikes and the guarantee is voided. If PMU Bookings On Demand won’t",
+        "When the partner receives a new lead in PMU Bookings On Demand’s CRM, the partner must calling the lead within 24 business hours otherwise the partner will get a strike, {{strikes}} strikes and the guarantee is voided.\nNot all leads answer on the first call. If a lead didn’t answer the partner’s calls, the partner must keep calling the lead at least 2 times in a row, otherwise the partner will get a strike. {{strikes}} strikes and the guarantee is voided. If PMU Bookings On Demand won’t",
         "PMU Bookings On Demand will be able to document the partner’s growth process from A-Z through videos and photos.",
         AD_COST,
       ] },
@@ -183,7 +196,28 @@ export function money(n: number): string {
   return "$" + n.toLocaleString("en-US", { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 2 });
 }
 
-const DAYS_RE = /^\d{1,3}(\s*[+/]\s*\d{1,3}){0,3}$/;
+// Only "+" between numbers: one program length is always chosen (the old
+// "90 / 150 + 60" pick-one draft wording can't reach a signed contract).
+const DAYS_RE = /^\d{1,3}(\s*\+\s*\d{1,3}){0,3}$/;
+
+/** The label to show for a field, given the current values. */
+export function fieldLabel(f: FieldDef, values: Record<string, unknown>): string {
+  if (!f.labelBy) return f.label;
+  const other = TEMPLATE_FIELDS_LOOKUP(f.labelBy.key);
+  const v = String(values?.[f.labelBy.key] ?? other?.default ?? "");
+  return f.labelBy.labels[v] ?? f.label;
+}
+function TEMPLATE_FIELDS_LOOKUP(key: string): FieldDef | undefined {
+  for (const t of TEMPLATE_IDS) { const f = TEMPLATE_FIELDS[t].find((x) => x.key === key); if (f) return f; }
+  return undefined;
+}
+
+/** True when a field's showIf condition does not hold (hidden in the form). */
+function isHidden(t: EsignTemplateId, f: FieldDef, raw: Record<string, unknown>): boolean {
+  if (!f.showIf) return false;
+  const dep = TEMPLATE_FIELDS[t].find((x) => x.key === f.showIf!.key);
+  return String(raw?.[f.showIf.key] ?? dep?.default ?? "").trim() !== f.showIf.value;
+}
 const RANGE_RE = /^\d{1,5}(\s*-\s*\d{1,5})?$/;
 
 /** Check + normalise what the salesperson typed. Returns clean values or a
@@ -192,6 +226,9 @@ export function validateFields(t: EsignTemplateId, raw: Record<string, unknown>)
   const values: FieldValues = {};
   const errors: Record<string, string> = {};
   for (const f of TEMPLATE_FIELDS[t]) {
+    // A hidden field (e.g. "Number of payments" when not split) is not used:
+    // keep its default so a stale value can't block the form.
+    if (isHidden(t, f, raw)) { values[f.key] = f.default; continue; }
     const v = raw?.[f.key] ?? f.default;
     const s = String(v).trim().slice(0, 40);
     if (f.type === "money" || f.type === "number") {
@@ -211,9 +248,11 @@ export function validateFields(t: EsignTemplateId, raw: Record<string, unknown>)
       values[f.key] = parts.join("-");
     } else if (f.type === "days") {
       if (!DAYS_RE.test(s)) { errors[f.key] = "Like 90, or 150 + 60"; continue; }
-      const nums = s.split(/[+/]/).map((p) => Number(p.trim()));
-      if (nums.some((n) => n < 1 || n > 730)) { errors[f.key] = "Each number 1–730"; continue; }
-      values[f.key] = s.replace(/\s*([+/])\s*/g, " $1 ");
+      const nums = s.split("+").map((p) => Number(p.trim()));
+      const months = String(raw?.program_unit ?? "days") === "months";
+      const max = months ? 24 : 730;
+      if (nums.some((n) => n < 1 || n > max)) { errors[f.key] = `Each number 1–${max}`; continue; }
+      values[f.key] = s.replace(/\s*\+\s*/g, " + ");
     } else {
       const ok = f.options?.some((o) => o.value === s);
       if (!ok) { errors[f.key] = "Pick one"; continue; }
@@ -233,16 +272,26 @@ export function placeholderValues(t: EsignTemplateId, v: FieldValues): Record<st
     const fee = Number(v.fee), dep = Number(v.deposit);
     return { fee: money(fee), deposit: money(dep), total: money(Math.round((fee + dep) * 100) / 100), ad_spend: range(v.ad_spend) };
   }
-  const price = money(Number(v.price));
+  const total = Number(v.price);
+  const price = money(total);
   const plan = String(v.payment_plan);
   // Wording of each payment plan as it appeared in past exports:
-  // (23) "$3,985 upfront", (16) "$697/mo", (20) "$897 * 3 months".
-  const price_terms = plan === "monthly" ? `${price}/mo` : plan === "split" ? `${price} * ${Number(v.payments)} months` : `${price} upfront`;
+  // (23) "$3,985 upfront", (16) "$697/mo", (20) "$897 * 3 months",
+  // (10) "$3,485 ($1,742.5 at the beginning and $1,742.5 in 30 days)".
+  let price_terms: string;
+  if (plan === "monthly") price_terms = `${price}/mo`;
+  else if (plan === "split") price_terms = `${price} * ${Number(v.payments)} months`;
+  else if (plan === "two") {
+    const first = Math.round((total / 2) * 100) / 100;
+    const second = Math.round((total - first) * 100) / 100;
+    price_terms = `${price} (${money(first)} at the beginning and ${money(second)} in 30 days)`;
+  } else price_terms = `${price} upfront`;
   const len = Number(v.guarantee_length);
   // (23) "75 bookings in 7 months", (11–19) "30 bookings within 90 days".
   const guarantee_period = v.guarantee_unit === "days" ? `within ${len} days` : `in ${len} month${len === 1 ? "" : "s"}`;
   return {
-    program_days: String(v.program_days),
+    program_length: `${String(v.program_length)} ${v.program_unit === "months" ? "months" : "days"}`,
+    strikes: String(Number(v.strikes)),
     price_terms,
     ad_spend: range(v.ad_spend),
     guarantee_bookings: String(Number(v.guarantee_bookings)),
@@ -284,7 +333,7 @@ export function placeholdersIn(a: Agreement): Set<string> {
  *  agreement that still has every required placeholder, no unknown ones,
  *  and a signature block. */
 export function checkTemplate(t: EsignTemplateId, v: unknown): { template: Agreement | null; error?: string } {
-  const a = parseAgreement(v);
+  const a = upgradeTemplate(t, parseAgreement(v));
   if (!a) return { template: null, error: "That is not a valid agreement" };
   const have = placeholdersIn(a);
   const missing = REQUIRED_PLACEHOLDERS[t].filter((p) => !have.has(p));
@@ -294,6 +343,24 @@ export function checkTemplate(t: EsignTemplateId, v: unknown): { template: Agree
   if (unknown.length) return { template: null, error: `Unknown spot(s): ${unknown.map((m) => `{{${m}}}`).join(", ")}` };
   if (!a.blocks.some((b) => b.type === "signature")) return { template: null, error: "The signature block is missing" };
   return { template: a };
+}
+
+/** Older admin overrides (before program_length / strikes were fields) are
+ *  upgraded so they keep working instead of falling back to the default. */
+function upgradeTemplate(t: EsignTemplateId, a: Agreement | null): Agreement | null {
+  if (!a || t !== "standard") return a;
+  const up = (s: string) => s
+    .replace(/\{\{\s*program_days\s*\}\}\s*days/g, "{{program_length}}")
+    .replace(/strike([,.]) 5 strikes and the guarantee is voided/g, "strike$1 {{strikes}} strikes and the guarantee is voided");
+  return {
+    title: up(a.title),
+    footer: up(a.footer),
+    blocks: a.blocks.map((b): Block => {
+      if (b.type === "heading" || b.type === "paragraph") return { type: b.type, text: up(b.text) };
+      if (b.type === "bullets" || b.type === "numbered") return { type: b.type, items: b.items.map(up) };
+      return b;
+    }),
+  };
 }
 
 /** The exact text the document fingerprint (SHA-256) is taken over. Built
