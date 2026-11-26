@@ -10,7 +10,12 @@ const nextConfig = {
       "/api/onebox/ig-widget": ["./node_modules/ffmpeg-static/ffmpeg"],
       "/api/onboarding/[id]/setup": ["./node_modules/ffmpeg-static/ffmpeg"],
       "/api/agent/worker/finish": ["./node_modules/ffmpeg-static/ffmpeg"],
+      /* The signed agreement PDF embeds the logo, read from disk. */
+      "/api/sign/[token]": ["./public/brand-logo.png"],
     },
+    /* @react-pdf builds the signed agreement on the server (e-sign,
+       11/26/2026) — loaded from node_modules, not bundled. */
+    serverComponentsExternalPackages: ["@react-pdf/renderer"],
   },
   async headers() {
     return [

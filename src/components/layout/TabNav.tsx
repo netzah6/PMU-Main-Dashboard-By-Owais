@@ -43,6 +43,9 @@ const TABS: Tab[] = [
   // plain English, download it as a PDF (user request 2026-09-11). Sits right
   // after Calls (user request 2026-09-14).
   { label: "📝 Agreement", href: "/agreement", adminOnly: true },
+  // Send an agreement for e-signature: sales changes only the numbers, the
+  // client signs on /sign/<token> (owner, 11/26/2026).
+  { label: "✍️ E-Sign", href: "/esign", adminOnly: true, alsoRoles: ["sales", "closer", "setter"] },
   // Hidden from the menu (page still exists at /reply): AI Replies — merged into the AI chat
   // Hidden from the menu (page still exists at /agreements) — user request 2026-08-21
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
@@ -87,7 +90,7 @@ const MEDIA_BUYER_TABS = new Set([
 
 // Sales seats: the Sales tab plus Tasks (the tasks API already shows a
 // non-admin only the tasks assigned to them — user request 2026-09-17).
-const SALES_TABS = new Set(["/sales", "/tasks"]);
+const SALES_TABS = new Set(["/sales", "/tasks", "/esign"]);
 
 const ALLOWLISTS: Partial<Record<NonNullable<UserRole>, Set<string>>> = {
   va: VA_TABS,
