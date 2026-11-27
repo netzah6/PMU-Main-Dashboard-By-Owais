@@ -21,6 +21,15 @@ const sortedKey = (t: unknown) => nk(t).split(" ").filter(Boolean).sort().join("
 const biz = (t: unknown) => String(t ?? "").replace(/\s*-\s*ad\s*account.*$/i, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const money = (v: unknown) => { const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g, "")); return isNaN(n) ? 0 : n; };
 const s = (v: unknown) => String(v ?? "").trim();
+// "dd/mm/yyyy" or "yyyy-mm-dd" → month number (year*12 + month), like health_date_dmy.
+const monthNo = (v: unknown): number | null => {
+  const t = s(v);
+  let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return +m[3] * 12 + (+m[2] - 1);
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? +m[1] * 12 + (+m[2] - 1) : null;
+};
+const span = (a: number[]) => (a.length ? Math.max(...a) - Math.min(...a) + 1 : 0);
 
 export async function getLtvDeposits(): Promise<Record<string, LtvDeposit>> {
   return (await getLtvData()).byName;
@@ -29,7 +38,12 @@ export async function getLtvDeposits(): Promise<Record<string, LtvDeposit>> {
 /* "On average, how much is each client worth to me" (owner, 11/27/2026):
    lifetime service fees + lead deposits kept (minus refunds), per client in
    the LTV sheet. Same client count as the LTV tab's "Average LTV". */
-export type LtvWorth = { clients: number; fees: number; deposits: number; refunds: number; withDeposits: number };
+/* Per month (owner, 11/27/2026: "how much they're worth to me on monthly
+   average"): all the money ÷ all the months clients stayed. A client's months
+   = first to last month we got money from them (a fee or a lead deposit),
+   both ends counted. A client who paid several months upfront in one payment
+   counts as fewer months, so this leans a little high for them. */
+export type LtvWorth = { clients: number; fees: number; deposits: number; refunds: number; withDeposits: number; months: number; noDates: number };
 export async function getLtvWorth(): Promise<LtvWorth> {
   const { byName, rows } = await getLtvData();
   const paid = rows.filter((r) => r.ltv > 0);
@@ -40,10 +54,12 @@ export async function getLtvWorth(): Promise<LtvWorth> {
     deposits: v.reduce((t, x) => t + x.deposits, 0),
     refunds: v.reduce((t, x) => t + x.refunds, 0),
     withDeposits: v.filter((x) => x.deposits > x.refunds).length,
+    months: paid.reduce((t, r) => t + Math.max(1, r.months), 0),
+    noDates: paid.filter((r) => !r.months).length,
   };
 }
 
-async function getLtvData(): Promise<{ byName: Record<string, LtvDeposit>; rows: { name: string; ltv: number }[] }> {
+async function getLtvData(): Promise<{ byName: Record<string, LtvDeposit>; rows: { name: string; ltv: number; months: number }[] }> {
   const svc = createServiceClient();
   const all = (table: string) => fetchAllRows<Row>((a, b) => svc.from(table).select("data").order("id").range(a, b));
   const [cm, pays, ltv, deps, refunds] = await Promise.all([
@@ -63,13 +79,17 @@ async function getLtvData(): Promise<{ byName: Record<string, LtvDeposit>; rows:
     add(bizByEmail, s(d["Email"]).toLowerCase(), b);
   }
   // Payments ledger: name on payment → emails
-  const emailsByName = new Map<string, Set<string>>();
+  const emailsByName = new Map<string, Set<string>>(), payMonths = new Map<string, number[]>();
   for (const { data: d } of pays) {
     const e = s(d["Email"]).toLowerCase();
-    if (e) add(emailsByName, sortedKey(d["Full Name (On Payment)"]), e);
+    const k = sortedKey(d["Full Name (On Payment)"]) || sortedKey(d["Full Name (When Sign Up)"]);
+    if (e) add(emailsByName, k, e);
+    const mo = monthNo(d["Date"]);
+    if (k && mo != null) (payMonths.get(k) ?? payMonths.set(k, []).get(k)!).push(mo);
   }
 
   // Deposits per business (de-duplicated), refunds per business
+  const depMonths = new Map<string, number[]>();
   const seen = new Set<string>(), depSum = new Map<string, { amt: number; n: number }>(), refSum = new Map<string, number>();
   for (const { data: d } of deps) {
     if (/void/i.test(s(d["Date"])) || /void/i.test(s(d["Business Name"]))) continue;
@@ -81,12 +101,14 @@ async function getLtvData(): Promise<{ byName: Record<string, LtvDeposit>; rows:
     seen.add(key);
     const cur = depSum.get(b) ?? { amt: 0, n: 0 };
     depSum.set(b, { amt: cur.amt + (money(d["Amount"]) || 50), n: cur.n + 1 });
+    const mo = monthNo(date);
+    if (mo != null) (depMonths.get(b) ?? depMonths.set(b, []).get(b)!).push(mo);
   }
   for (const r of refunds) { const b = biz(r.business); if (b) refSum.set(b, (refSum.get(b) ?? 0) + (money(r.amount) || 50)); }
 
   // LTV rows → businesses; each business goes to its highest-LTV row only
   const rows = ltv
-    .map(({ data: d }) => ({ name: s(d["(Name On Payment)"]), ltv: money(d["Lifetime Value"]) }))
+    .map(({ data: d }) => ({ name: s(d["(Name On Payment)"]), ltv: money(d["Lifetime Value"]), months: 0 }))
     .filter((r) => r.name)
     .sort((a, b) => b.ltv - a.ltv);
   const taken = new Set<string>(), out: Record<string, LtvDeposit> = {};
@@ -95,6 +117,7 @@ async function getLtvData(): Promise<{ byName: Record<string, LtvDeposit>; rows:
     const bs = new Set<string>(bizByName.get(k) ?? []);
     for (const e of emailsByName.get(k) ?? []) for (const b of bizByEmail.get(e) ?? []) bs.add(b);
     const mine = [...bs].filter((b) => !taken.has(b) && (depSum.has(b) || refSum.has(b)));
+    r.months = span([...(payMonths.get(k) ?? []), ...mine.flatMap((b) => depMonths.get(b) ?? [])]);
     if (!mine.length) continue;
     mine.forEach((b) => taken.add(b));
     const prev = out[r.name];
