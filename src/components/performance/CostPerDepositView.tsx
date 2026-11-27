@@ -1,0 +1,763 @@
+"use client";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { DataFreshness } from "@/components/freshness/DataFreshness";
+import { createClient } from "@/lib/supabase/client";
+import { formatCurrency, userColor, cn } from "@/lib/utils";
+import { Search, ChevronRight, X, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { ActivityLog } from "@/components/activity/ActivityLog";
+import { LeadBreakdown } from "@/components/clients/LeadBreakdown";
+import { SyncHealthBanner } from "@/components/SyncHealthBanner";
+
+interface Row {
+  sheet_row: number;
+  client_status: string | null;
+  owner_name: string | null;
+  ad_account_name: string | null;
+  version: string | null;
+  assigned: string | null;
+  media_buyer: string | null;
+  original_price: string | null;
+  discounted_price: string | null;
+  offer: string | null;
+  current_offer: string | null;
+  deposit_amount: string | null;
+  leads_all: number | null;
+  deposits_all: number | null;
+  l14: number | null;
+  l30: number | null;
+  l3: number | null;
+  l7: number | null;
+  daily_budget: number | string | null;
+  d3: number; d7: number; d14: number; d30: number;
+  spent7: number | string | null; spent14: number | string | null; spent30: number | string | null;
+  cpd7: number | string | null; cpd14: number | string | null; cpd30: number | string | null;
+}
+
+const num = (v: unknown) => {
+  const n = typeof v === "number" ? v : parseFloat(String(v ?? "").replace(/[$,]/g, ""));
+  return isNaN(n) ? null : n;
+};
+const money0 = (v: unknown) => { const n = num(v); return n == null ? "—" : "$" + +n.toFixed(2); };
+
+type Vivid = { bg: string; fg: string };
+const V = {
+  green:  { bg: "#33d15b", fg: "#0a3d18" },
+  yellow: { bg: "#ffe000", fg: "#5c4600" },
+  orange: { bg: "#ff9f1a", fg: "#5c3200" },
+  red:    { bg: "#ff4d40", fg: "#5c0000" },
+  gray:   { bg: "#e3e8ec", fg: "#8a96a3" },
+};
+// Deposits: higher is better
+const depVivid = (v: number, g: number, a: number): Vivid => (v >= g ? V.green : v >= a ? V.yellow : V.red);
+// Leads: higher is better — same thresholds as the Performance tab
+// (L30 86/65, L14 43/33, L7 22/17, L3 11/8); paused = orange/gray.
+const leadCellTone = (v: number, g: number, a: number, paused: boolean): Vivid =>
+  paused ? (v !== 0 ? V.orange : V.gray) : v >= g ? V.green : v >= a ? V.yellow : V.red;
+// Paused clients: gray when 0, orange when deposits still come in (matches Performance).
+const depCellTone = (v: number, g: number, a: number, paused: boolean): Vivid =>
+  paused ? (v !== 0 ? V.orange : V.gray) : depVivid(v, g, a);
+// Cost per deposit: lower is better; $0 / none = gray
+// CPL: lower is better; thresholds match the Performance tab so the colors
+// read the same across both pages.
+const cplVivid = (v: number | null): Vivid =>
+  v == null || v <= 0 ? V.gray : v < 6 ? V.green : v < 8 ? V.yellow : v < 10 ? V.orange : V.red;
+const cpdVivid = (v: number | null): Vivid =>
+  v == null || v <= 0 ? V.gray : v < 75 ? V.green : v < 150 ? V.yellow : v < 250 ? V.orange : V.red;
+// Lead→deposit conversion %: higher is better; no leads = gray (mirrors ratioTone bands)
+const convTone = (v: number | null): Vivid =>
+  v == null ? V.gray : v >= 10 ? V.green : v >= 5.5 ? V.yellow : v >= 3.3 ? V.orange : V.red;
+
+// ── Funnel Health ────────────────────────────────────────────────────────────
+// Score built from the four funnel columns (Leads/Dep 30, Leads/Dep 14,
+// Conv% 30, Conv% 14) using the SAME color bands as the cells:
+// green=3, yellow=2, orange=1, red=0 points per metric, averaged (0–3).
+// Leads but zero deposits counts as red (0) — that's the worst funnel state.
+// No lead data at all → null (sorted to the bottom in both directions).
+function funnelHealth(r: Row): number | null {
+  const ratio30 = r.d30 > 0 ? Math.round((r.l30 ?? 0) / r.d30) : null;
+  const ratio14 = r.d14 > 0 ? Math.round((r.l14 ?? 0) / r.d14) : null;
+  const conv30 = r.l30 && r.l30 > 0 ? (r.d30 / r.l30) * 100 : null;
+  const conv14 = r.l14 && r.l14 > 0 ? (r.d14 / r.l14) * 100 : null;
+
+  const ratioPts = (v: number | null, hasLeads: boolean): number | null =>
+    v != null ? (v <= 10 ? 3 : v <= 18 ? 2 : v <= 30 ? 1 : 0) : hasLeads ? 0 : null;
+  const convPts = (v: number | null): number | null =>
+    v == null ? null : v >= 10 ? 3 : v >= 5.5 ? 2 : v >= 3.3 ? 1 : 0;
+
+  const pts = [
+    ratioPts(ratio30, (r.l30 ?? 0) > 0),
+    ratioPts(ratio14, (r.l14 ?? 0) > 0),
+    convPts(conv30),
+    convPts(conv14),
+  ].filter((p): p is number => p != null);
+  if (pts.length === 0) return null;
+  return pts.reduce((s, p) => s + p, 0) / pts.length;
+}
+const healthTone = (s: number | null): Vivid =>
+  s == null ? V.gray : s >= 2.5 ? V.green : s >= 1.5 ? V.yellow : s >= 0.75 ? V.orange : V.red;
+
+function UserCell({ name }: { name: string | null }) {
+  if (!name) return <span className="text-[#a6b3c4]">—</span>;
+  const c = userColor(name);
+  return (
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap border"
+      style={{ background: c?.bg, color: c?.text, borderColor: c?.border }}>{name}</span>
+  );
+}
+
+// Compact cell for free-text values: short values render inline; long ones
+// truncate to a narrow width and expand/collapse on click so one client's long
+// note doesn't stretch the whole column.
+function ExpandText({ value }: { value: string | null }) {
+  const [open, setOpen] = useState(false);
+  if (!value) return <span className="text-[#a6b3c4]">—</span>;
+  if (value.length <= 14) return <span className="whitespace-nowrap">{value}</span>;
+  return (
+    <span
+      onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+      title={open ? "Click to collapse" : value}
+      className={cn("cursor-pointer inline-block align-bottom", open ? "whitespace-normal break-words max-w-[220px]" : "max-w-[72px] truncate")}
+    >
+      {value}
+    </span>
+  );
+}
+
+const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Sched", "1-Box", "Kill Call", "Kill Text", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Conv% 30", "Conv% 14", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
+
+/* One row per sub-account where the Meta "Schedule" event was installed on
+   the funnel's deposit page — written by the rollout, read here so the team
+   can see at a glance which accounts have the conversion (and whether the
+   rest of that funnel's tracking is healthy enough for it to matter). */
+type SchedFlag = { owner_name: string; schedule_installed_at: string | null; lead_status: string | null; notes: string | null };
+
+export function CostPerDepositView() {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [assignee, setAssignee] = useState("All");
+  const [versionFilter, setVersionFilter] = useState("All");
+  const [sortMode, setSortMode] = useState<"default" | "fh-best" | "fh-worst" | "kill-worst" | "killtext-worst" | "brief-worst">("default");
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  // null = unknown (query failed) → show NO orange flags rather than flagging
+  // everyone; a Map means we know exactly who has GHL data and whether their
+  // leads carry the (v3) tag.
+  const [ghlStatus, setGhlStatus] = useState<Map<string, "ok" | "untagged"> | null>(null);
+  const [schedFlags, setSchedFlags] = useState<Map<string, SchedFlag> | null>(null);
+  /* owner (lowercased) → one-box funnel status, from the onebox_active_clients
+     view (onebox_clients joined to Clients Master by normalized business name). */
+  const [oneboxMap, setOneboxMap] = useState<Map<string, { status: string; business: string; slug?: string }> | null>(null);
+  /* owner (lowercased) -> call-kill stats (daily cron): of the leads the
+     artist CALLED, how many lost the AI afterwards — the outgoing-call
+     workflow removes them from the AI flow (2026-09-22 finding). */
+  const [killMap, setKillMap] = useState<Map<string, { qualified: number; called: number; dead: number; ignored: number }> | null>(null);
+  /* Clients whose call workflow was already fixed (owner clicks the Kill %
+     to mark it, 2026-10-03) — so he knows who's taken care of. */
+  const [killFixes, setKillFixes] = useState<Record<string, { fixed_by: string | null; fixed_at: string }>>({});
+  const [killSaving, setKillSaving] = useState<string | null>(null);
+  /* owner (lowercased) -> text-kill stats (daily cron, owner 10/27/2026): of
+     the qualified leads, how many lost the AI after the artist texted them
+     herself (CloseBot's auto shutoff), with the takeover messages. */
+  const [textKillMap, setTextKillMap] = useState<Map<string, TextKill> | null>(null);
+  // Client briefs (🧭 In short, PR 10/27/2026): status + headline per slug, for the dot by the name and the "Needs attention" sort.
+  const [briefMap, setBriefMap] = useState<Map<string, { status: "fix" | "watch" | "good"; headline: string }> | null>(null);
+  const [textKillOpen, setTextKillOpen] = useState<{ name: string; k: TextKill } | null>(null);
+  useEffect(() => {
+    fetch("/api/call-kill/fixed").then((r) => r.json()).then((j) => { if (j.fixes) setKillFixes(j.fixes); }).catch(() => {});
+  }, []);
+  const toggleKillFix = async (ownerKey: string, name: string) => {
+    if (killSaving) return;
+    const isFixed = !!killFixes[ownerKey];
+    if (isFixed && !window.confirm(`Mark ${name} as NOT fixed again?`)) return;
+    setKillSaving(ownerKey);
+    try {
+      const r = await fetch("/api/call-kill/fixed", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerKey, fixed: !isFixed }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Couldn't save");
+      setKillFixes((m) => {
+        const n = { ...m };
+        if (j.fixed) n[ownerKey] = { fixed_by: j.fixed_by ?? null, fixed_at: j.fixed_at };
+        else delete n[ownerKey];
+        return n;
+      });
+      toast.success(j.fixed ? `${name}: marked fixed ✓` : `${name}: marked not fixed`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save");
+    } finally { setKillSaving(null); }
+  };
+
+  useEffect(() => {
+    const supabase = createClient();
+    (async () => {
+      // booking_stats is a tiny pre-aggregated view (one row per GHL owner) —
+      // much cheaper than scanning ghl_lead_status for the "No GHL" flags.
+      const [ovRes, bkRes, sfRes, obRes, kkRes] = await Promise.all([
+        supabase.from("deposit_overview").select("*"),
+        supabase.from("booking_stats").select("owner_key, leads_total, contacts_total"),
+        supabase.from("funnel_tracking_flags").select("owner_name, schedule_installed_at, lead_status, notes"),
+        supabase.from("onebox_active_clients").select("owner_name, business_name, onebox_status, slug"),
+        supabase.from("call_kill_stats").select("slug, owner_key, qualified, called, dead, ignored"),
+      ]);
+      /* The kill stats are computed per funnel (slug) and carry the owner
+         name GHL sync has for that sub-account — on recycled sub-accounts
+         that's the PREVIOUS owner, so the
+         row showed "no leads". Index each stat under the Clients Master
+         owner name of its funnel as well (same names as the rows). */
+      const ownersBySlug = new Map<string, string[]>();
+      for (const o of (obRes.data ?? []) as { owner_name: string; slug: string }[]) {
+        if (!o.slug || !o.owner_name) continue;
+        ownersBySlug.set(o.slug, [...(ownersBySlug.get(o.slug) ?? []), o.owner_name]);
+      }
+      /* Clients Master name when the funnel has one; the sync name only as a
+         fallback, so a stale name can't put one client's stats on another. */
+      const keysFor = (slug: string, ownerKey: string) => {
+        const owners = ownersBySlug.get(slug);
+        return owners?.length ? [...new Set(owners.flatMap(ownerKeys))] : ownerKeys(ownerKey);
+      };
+      void supabase.from("cpd_briefs").select("slug, status, headline").then(({ data, error: e }) => {
+        if (e || !data) return;
+        const m = new Map<string, { status: "fix" | "watch" | "good"; headline: string }>();
+        for (const b of data as { slug: string; status: "fix" | "watch" | "good"; headline: string }[]) m.set(b.slug, { status: b.status, headline: b.headline });
+        setBriefMap(m);
+      });
+      void supabase.from("text_kill_stats").select("slug, owner_key, qualified, texted, dead, ignored, events, computed_at").then(({ data, error: e }) => {
+        if (e || !data) return;
+        const m = new Map<string, TextKill>();
+        for (const k of data as (TextKill & { owner_key: string; slug: string })[]) for (const key of keysFor(k.slug, k.owner_key)) m.set(key, k);
+        setTextKillMap(m);
+      });
+      if (ovRes.error) { setError(ovRes.error.message); setLoading(false); return; }
+      setRows(((ovRes.data as Row[]) ?? []));
+      if (!sfRes.error && sfRes.data) {
+        const m = new Map<string, SchedFlag>();
+        for (const f of sfRes.data as SchedFlag[]) m.set(f.owner_name.toLowerCase().trim(), f);
+        setSchedFlags(m);
+      }
+      if (!kkRes.error && kkRes.data) {
+        const m = new Map<string, { qualified: number; called: number; dead: number; ignored: number }>();
+        for (const k of kkRes.data as { slug: string; owner_key: string; qualified: number; called: number; dead: number; ignored: number }[]) {
+          const v = { qualified: k.qualified, called: k.called, dead: k.dead, ignored: k.ignored };
+          for (const key of keysFor(k.slug, k.owner_key)) m.set(key, v);
+        }
+        setKillMap(m);
+      }
+      if (!obRes.error && obRes.data) {
+        const m = new Map<string, { status: string; business: string; slug?: string }>();
+        for (const o of obRes.data as { owner_name: string; business_name: string; onebox_status: string; slug?: string }[]) {
+          m.set(o.owner_name.toLowerCase().trim(), { status: o.onebox_status, business: o.business_name, slug: o.slug });
+        }
+        setOneboxMap(m);
+      }
+      // leads_total > 0 → (v3)-tagged leads flowing ("ok"); contacts but zero
+      // tagged leads → the (v3) tag workflow is broken in that sub-account
+      // ("untagged"). Absent from the map entirely → no GHL data at all.
+      // On error keep null (unknown) so we never flag everyone orange.
+      if (!bkRes.error && bkRes.data) {
+        const m = new Map<string, "ok" | "untagged">();
+        for (const b of bkRes.data as { owner_key: string; leads_total: number; contacts_total: number }[]) {
+          m.set(String(b.owner_key), (b.leads_total ?? 0) > 0 ? "ok" : "untagged");
+        }
+        setGhlStatus(m);
+      } else if (bkRes.error) {
+        console.warn("booking_stats query failed:", bkRes.error.message);
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  const assignees = useMemo(() => ["All", ...Array.from(new Set(rows.map((r) => r.assigned).filter(Boolean) as string[])).sort()], [rows]);
+
+  const filtered = useMemo(() => {
+    const list = rows.filter((r) => {
+      if (assignee !== "All" && r.assigned !== assignee) return false;
+      if (versionFilter !== "All") {
+        const ver = (r.version ?? "").toLowerCase();
+        if (versionFilter === "V3" && !ver.includes("v3")) return false;
+        if (versionFilter === "V2.3" && !ver.includes("v2.3")) return false;
+      }
+      if (search && !`${r.owner_name ?? ""} ${r.ad_account_name ?? ""}`.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+    // Paused clients always sink to the bottom, in every sort mode.
+    const rank = (s: string | null) => (String(s ?? "").toLowerCase() === "paused" ? 1 : 0);
+    if (sortMode === "default") {
+      return list.sort((a, b) => rank(a.client_status) - rank(b.client_status) || b.d30 - a.d30);
+    }
+    if (sortMode === "kill-worst") {
+      const killOf = (r: Row) => {
+        const k = killMap?.get((r.owner_name ?? "").toLowerCase().trim());
+        return k && k.qualified > 0 ? k.dead / k.qualified : null;
+      };
+      return list.sort((a, b) => {
+        const pr = rank(a.client_status) - rank(b.client_status);
+        if (pr !== 0) return pr;
+        const ka = killOf(a), kb = killOf(b);
+        if (ka == null && kb == null) return b.d30 - a.d30;
+        if (ka == null) return 1;
+        if (kb == null) return -1;
+        if (ka !== kb) return kb - ka; // worst first
+        return b.d30 - a.d30;
+      });
+    }
+    if (sortMode === "brief-worst") {
+      const rankBrief = (r: Row) => {
+        const slug = oneboxMap?.get((r.owner_name ?? "").toLowerCase().trim())?.slug;
+        const b = slug ? briefMap?.get(slug) : undefined;
+        return b ? { fix: 0, watch: 1, good: 2 }[b.status] : 3;
+      };
+      return list.sort((a, b) => {
+        const pr = rank(a.client_status) - rank(b.client_status);
+        if (pr !== 0) return pr;
+        const d = rankBrief(a) - rankBrief(b);
+        if (d !== 0) return d;
+        return Number(b.spent14 ?? 0) - Number(a.spent14 ?? 0); // biggest spend first inside a group
+      });
+    }
+    if (sortMode === "killtext-worst") {
+      const killOf = (r: Row) => {
+        const k = textKillMap?.get((r.owner_name ?? "").toLowerCase().trim());
+        return k && k.qualified > 0 ? k.dead / k.qualified : null;
+      };
+      return list.sort((a, b) => {
+        const pr = rank(a.client_status) - rank(b.client_status);
+        if (pr !== 0) return pr;
+        const ka = killOf(a), kb = killOf(b);
+        if (ka == null && kb == null) return b.d30 - a.d30;
+        if (ka == null) return 1;
+        if (kb == null) return -1;
+        if (ka !== kb) return kb - ka;
+        return b.d30 - a.d30;
+      });
+    }
+    // Funnel Health sort: score from Leads/Dep 30+14 and Conv% 30+14.
+    // Clients with no lead data (null score) go last in both directions.
+    const dir = sortMode === "fh-best" ? -1 : 1;
+    return list.sort((a, b) => {
+      const pr = rank(a.client_status) - rank(b.client_status);
+      if (pr !== 0) return pr;
+      const ha = funnelHealth(a), hb = funnelHealth(b);
+      if (ha == null && hb == null) return b.d30 - a.d30;
+      if (ha == null) return 1;
+      if (hb == null) return -1;
+      if (ha !== hb) return dir * (ha - hb);
+      return b.d30 - a.d30; // tie-break: more deposits first
+    });
+  }, [rows, search, assignee, versionFilter, sortMode, killMap, textKillMap, briefMap, oneboxMap]);
+
+  return (
+    <div className="p-3 md:p-4 space-y-3">
+      <SyncHealthBanner />
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-lg font-semibold text-[#1f3559]">CPD</h1>
+            <DataFreshness />
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#697a91]" />
+            <input type="text" placeholder="Search owner or ad account…" value={search} onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 pr-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8] focus:outline-none focus:border-[#15B7AE] w-60" />
+          </div>
+          <select value={assignee} onChange={(e) => setAssignee(e.target.value)}
+            className="px-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
+            {assignees.map((a) => <option key={a} value={a}>{a === "All" ? "All assigned" : a}</option>)}
+          </select>
+          <select value={versionFilter} onChange={(e) => setVersionFilter(e.target.value)}
+            className="px-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
+            <option value="All">All versions</option>
+            <option value="V3">V3</option>
+            <option value="V2.3">V2.3</option>
+          </select>
+          <select value={sortMode} onChange={(e) => setSortMode(e.target.value as typeof sortMode)}
+            title="Funnel Health = combined score of Leads/Dep 30, Leads/Dep 14, Conv% 30, Conv% 14 (same color bands as the cells)"
+            className={cn("px-3 py-2 border rounded-lg text-sm focus:outline-none focus:border-[#15B7AE]",
+              sortMode === "default" ? "bg-white border-[#e4ebf2] text-[#34568a]" : "bg-[#e6f7f5] border-[#a7e3df] text-[#0e8f88] font-semibold")}>
+            <option value="default">Sort: Deposits</option>
+            <option value="fh-best">Funnel Health: best → worst</option>
+            <option value="fh-worst">Funnel Health: worst → best</option>
+            <option value="kill-worst">Kill Call: worst → best</option>
+            <option value="killtext-worst">Kill Text: worst → best</option>
+            <option value="brief-worst">🧭 Needs attention first</option>
+          </select>
+
+          {/* Duplicates button removed (owner 11/11/2026) — it lives on the Deposits tab only. */}
+          <span className="text-xs text-[#697a91]">{filtered.length} clients</span>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="px-4 py-3 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-sm"><strong>Error:</strong> {error}</div>
+      ) : loading ? (
+        <div className="text-sm text-[#697a91] py-12 text-center">Loading…</div>
+      ) : (
+        <>
+        {/* One table on every screen — the columns line up, and the client
+            column stays pinned while the numbers scroll sideways on a phone. */}
+        <div className="rounded-[14px] border border-[#e4ebf2] bg-white overflow-auto max-h-[calc(100vh-260px)] md:max-h-[calc(100vh-180px)]" style={{ boxShadow: "var(--shadow-sm)" }}>
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr>
+                {HEADERS.map((h, idx) => {
+                  const divider = idx === 12 || idx === 16 || idx === 18 || idx === 22 || idx === 25 || idx === 28; // after Deposit $, D 3, Conv% 14, L 3, CPL 7, CPD 7 (+1 Sched, +1 1-Box, +2 Kill Call/Text) — was: +1 Kill %)
+                  return (
+                    <th key={h} className={cn("sticky top-0 px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-white",
+                      idx === 0 || idx === 1 ? "z-30" : "z-20", divider && "border-r-2 border-[#9fb0c4]")}
+                      style={{ background: "#2d4c79",
+                        ...(idx === 0 && { left: 0, width: 180, minWidth: 180, maxWidth: 180 }),
+                        ...(idx === 1 && { left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.30)" }) }}>
+                      {h}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r, i) => {
+                const cpd30 = num(r.cpd30), cpd14 = num(r.cpd14), cpd7 = num(r.cpd7);
+                // CPL = ad spend ÷ leads for the same window (same math as the
+                // Performance tab's sheet-fed CPL, computed from this view's
+                // spend + lead counts so both live on one row here).
+                const cplOf = (spent: unknown, leads: number | null) => {
+                  const sp = num(spent);
+                  return sp != null && sp > 0 && leads && leads > 0 ? sp / leads : null;
+                };
+                const cpl30 = cplOf(r.spent30, r.l30), cpl14 = cplOf(r.spent14, r.l14), cpl7 = cplOf(r.spent7, r.l7);
+                const conv30 = r.l30 && r.l30 > 0 ? (r.d30 / r.l30) * 100 : null;
+                const conv14 = r.l14 && r.l14 > 0 ? (r.d14 / r.l14) * 100 : null;
+                const paused = String(r.client_status ?? "").toLowerCase() === "paused";
+                const rowBgClass = paused ? "bg-[#e2e5ea] text-[#7c8794]" : i % 2 ? "bg-[#fafcfe]" : "bg-white";
+                const rowId = String(r.sheet_row ?? i);
+                const isOpen = openRow === rowId;
+                const ghl = ghlStatus == null ? "ok" : ghlStatus.get((r.owner_name ?? "").toLowerCase().trim()) ?? "none";
+                return (
+                  <Fragment key={rowId}>
+                  <tr className={cn("group border-b border-[#eef3f8]", rowBgClass, "hover:bg-[#a7e3df]")}>
+                    <td className={cn("sticky left-0 z-10 px-3 py-1 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df] cursor-pointer select-none", rowBgClass)}
+                      style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title="Click to view / add activity"
+                      onClick={() => setOpenRow(isOpen ? null : rowId)}>
+                      <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 transition-transform align-[-2px]", isOpen && "rotate-90", ghl === "ok" ? "text-[#94a3b8]" : "text-[#ea580c]")} />
+                      {(sortMode === "fh-best" || sortMode === "fh-worst") && (() => { const h = funnelHealth(r); const t = healthTone(h); return (
+                        <span className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-[-1px] border border-black/10"
+                          style={{ background: t.bg }}
+                          title={h == null ? "Funnel Health: no lead data" : `Funnel Health score: ${h.toFixed(1)} / 3`} />
+                      ); })()}
+                      {(() => {
+                        const slug = oneboxMap?.get((r.owner_name ?? "").toLowerCase().trim())?.slug;
+                        const b = slug ? briefMap?.get(slug) : undefined;
+                        if (!b) return null;
+                        const bg = b.status === "fix" ? "#ef4444" : b.status === "watch" ? "#f59e0b" : "#22c55e";
+                        return <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-[-1px]" style={{ background: bg }} title={`🧭 ${b.headline}`} />;
+                      })()}
+                      {ghl !== "ok" && <span className="mr-1" title={GHL_FLAG[ghl].title}>{GHL_FLAG[ghl].icon}</span>}
+                      <span className={cn(ghl !== "ok" && "text-[#ea580c] font-bold")} title={ghl === "ok" ? undefined : GHL_FLAG[ghl].title}>{r.owner_name || "—"}</span>
+                      {paused && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
+                    </td>
+                    <td className={cn("sticky z-10 px-3 py-1 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
+                      style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name ?? ""}>{r.ad_account_name || "—"}</td>
+                    <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
+                    <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
+                    <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>
+                    <td className="px-2 sm:px-3 py-1 text-center">
+                      {(() => {
+                        const f = schedFlags?.get((r.owner_name ?? "").toLowerCase().trim());
+                        if (!f || !f.schedule_installed_at) return <span className="text-[#c3cdd9]">—</span>;
+                        /* Installed everywhere it was rolled out; amber when the
+                           funnel can't actually fire it (no pixel / traffic on
+                           the old V1 funnel) so a ✓ never lies. */
+                        const cantFire = f.lead_status === "no-pixel" || f.lead_status === "v1-funnel";
+                        return (
+                          <span className={cn("font-bold text-[13px] cursor-default", cantFire ? "text-[#d97706]" : "text-[#15803d]")}
+                            title={`Schedule event installed ${new Date(f.schedule_installed_at).toLocaleDateString()}${f.notes ? ` — ${f.notes}` : ""}`}>
+                            {cantFire ? "⚠" : "✓"}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-3 py-1 text-center">
+                      {(() => {
+                        const ob = oneboxMap?.get((r.owner_name ?? "").toLowerCase().trim());
+                        if (!ob) return <span className="text-[#c3cdd9]">—</span>;
+                        const live = ob.status === "live";
+                        return (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className={cn("font-bold text-[13px] cursor-default", live ? "text-[#0e9c9c]" : "text-[#8595a8]")}
+                              title={live ? `One-box funnel LIVE (${ob.business}) — traffic runs on the one-box` : `One-box funnel exists but is paused (${ob.business})`}>
+                              {live ? "✓" : "⏸"}
+                            </span>
+                            {/* One click to the client's booking page (owner, 10/28/2026) —
+                                read-only preview: no lead, no notification. */}
+                            {ob.slug && (
+                              <a href={`https://book.pmu-care.com/f/${ob.slug}?preview=booking`} target="_blank" rel="noopener"
+                                onClick={(e) => e.stopPropagation()}
+                                title={`See ${ob.business}'s booking page (preview — no lead is created)`}
+                                className="inline-flex items-center justify-center rounded-full border border-[#cbd5e1] bg-white px-1.5 py-px text-[12px] leading-none hover:bg-[#e2f6f4] hover:border-[#0e9c9c]">
+                                👁
+                              </a>
+                            )}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap">
+                      {(() => {
+                        const k = killMap?.get((r.owner_name ?? "").toLowerCase().trim());
+                        const isV3 = /v3/i.test(r.version ?? "");
+                        if (!isV3) return <span className="text-[#c3cdd9] cursor-default" title="Kill Rate is tracked for V3 accounts only (AI follow-up)">—</span>;
+                        if (!k || k.qualified === 0) return <span className="text-[#8595a8] text-[10px] cursor-default" title="V3 account, tracked — no qualified leads in the last 14 days">no leads</span>;
+                        /* Kill % = dead / ALL qualified leads (owner's definition):
+                           the share of the account's whole lead flow that lost the
+                           AI to an artist call while the flow was still active. */
+                        const pct = Math.round((k.dead / k.qualified) * 100);
+                        const tone = pct >= 15 ? { bg: "#fde3e3", fg: "#b91c1c" } : pct >= 7 ? { bg: "#fff3e0", fg: "#c2410c" } : { bg: "#e7f6ec", fg: "#15803d" };
+                        const label = k.qualified < 3 ? `${k.dead}/${k.qualified}` : `${pct}%`;
+                        const ownerKey = (r.owner_name ?? "").toLowerCase().trim();
+                        const fix = killFixes[ownerKey];
+                        const saving = killSaving === ownerKey;
+                        const why = `${k.dead} of ${k.qualified} qualified leads (14d) lost the AI after an artist call — the artist called ${k.called} of them${k.ignored ? `, ${k.ignored} replied and got silence` : ""}. Cause: the outgoing-call workflow stops the CC- Funnel Survey flow while it's still active.`;
+                        /* Click = "I fixed this client's call workflow" (calling a
+                           lead no longer stops the AI). Saved per client. The %
+                           and its colour are ALWAYS the real last-14-days number
+                           (owner 10/27/2026: a green "fixed" was hiding kills that
+                           kept happening) — the fix shows only as a small mark,
+                           and once the fix is older than the 14-day window any
+                           kill left is a new one: flagged "still happening". */
+                        const fixDate = fix ? new Date(fix.fixed_at) : null;
+                        const fixAgeDays = fixDate ? (Date.now() - fixDate.getTime()) / 864e5 : 0;
+                        const stillHappening = !!fix && fixAgeDays > 14 && k.dead > 0;
+                        const fixLabel = fixDate ? fixDate.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" }) : "";
+                        return (
+                          <button type="button" onClick={(e) => { e.stopPropagation(); void toggleKillFix(ownerKey, r.owner_name ?? "this client"); }} disabled={saving}
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:ring-2 hover:ring-[#15B7AE]/40 disabled:opacity-60"
+                            style={{ background: tone.bg, color: tone.fg }}
+                            title={fix
+                              ? `Workflow marked fixed by ${fix.fixed_by ?? "an admin"} on ${fixLabel}. ${stillHappening ? "⚠ Leads are STILL losing the AI after calls — the fix didn't hold." : fixAgeDays <= 14 ? "The % still includes kills from before the fix until 14 days have passed." : "No new kills since the fix."} Click to undo the mark.\n\n${why}`
+                              : `Click once the call workflow is fixed for this client (calling a lead won't stop the AI).\n\n${why}`}>
+                            {saving && <Loader2 size={11} className="animate-spin" />}
+                            {label}
+                            {fix && <span className={cn("text-[9px] font-bold uppercase", stillHappening ? "text-[#b91c1c]" : "opacity-70")}>{stillHappening ? "⚠ still" : `✓ ${fixLabel}`}</span>}
+                          </button>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap">
+                      {(() => {
+                        const k = textKillMap?.get((r.owner_name ?? "").toLowerCase().trim());
+                        const isV3 = /v3/i.test(r.version ?? "");
+                        if (!isV3) return <span className="text-[#c3cdd9] cursor-default" title="Kill Text is tracked for V3 accounts only (AI follow-up)">—</span>;
+                        if (!textKillMap) return <span className="text-[#c3cdd9]">…</span>;
+                        if (!k || k.qualified === 0) return <span className="text-[#8595a8] text-[10px] cursor-default" title="V3 account, tracked — no qualified leads in the last 14 days">no leads</span>;
+                        /* Same scale as Kill Call: dead / ALL qualified leads (14 days). */
+                        const pct = Math.round((k.dead / k.qualified) * 100);
+                        const tone = pct >= 15 ? { bg: "#fde3e3", fg: "#b91c1c" } : pct >= 7 ? { bg: "#fff3e0", fg: "#c2410c" } : { bg: "#e7f6ec", fg: "#15803d" };
+                        const label = k.qualified < 3 ? `${k.dead}/${k.qualified}` : `${pct}%`;
+                        const why = `${k.dead} of ${k.qualified} qualified leads (14d) lost the AI after the artist texted them herself${k.ignored ? ` — ${k.ignored} replied and got silence` : ""}. Click to see the messages.`;
+                        return (
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setTextKillOpen({ name: r.owner_name ?? "Client", k }); }}
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:ring-2 hover:ring-[#15B7AE]/40"
+                            style={{ background: tone.bg, color: tone.fg }} title={why}>
+                            {label}
+                          </button>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-[#8595a8] line-through">{r.original_price || "—"}</td>
+                    <td className="px-2 sm:px-3 py-1 font-semibold text-[#0e8f88]"><ExpandText value={r.discounted_price} /></td>
+                    <td className="px-2 sm:px-3 py-1 max-w-[130px] truncate text-[#34568a]" title={r.current_offer ?? ""}>{r.current_offer || <span className="text-[#a6b3c4]">—</span>}</td>
+                    <td className="px-2 sm:px-3 py-1 whitespace-nowrap font-semibold text-[#1e2a3a] border-r-2 border-[#cbd5e1]">{r.deposit_amount || <span className="text-[#a6b3c4]">—</span>}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: depCellTone(r.d30, 8, 3, paused).bg, color: depCellTone(r.d30, 8, 3, paused).fg }}>{r.d30}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: depCellTone(r.d14, 5, 2, paused).bg, color: depCellTone(r.d14, 5, 2, paused).fg }}>{r.d14}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: depCellTone(r.d7, 3, 1, paused).bg, color: depCellTone(r.d7, 3, 1, paused).fg }}>{r.d7}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: depCellTone(r.d3, 2, 1, paused).bg, color: depCellTone(r.d3, 2, 1, paused).fg }}>{r.d3}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: convTone(conv30).bg, color: convTone(conv30).fg }} title={conv30 == null ? "No leads in 30d" : `${r.d30} deposits / ${r.l30} leads (30d)`}>{conv30 == null ? "—" : conv30.toFixed(1) + "%"}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: convTone(conv14).bg, color: convTone(conv14).fg }} title={conv14 == null ? "No leads in 14d" : `${r.d14} deposits / ${r.l14} leads (14d)`}>{conv14 == null ? "—" : conv14.toFixed(1) + "%"}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l30 ?? 0, 86, 65, paused).bg, color: leadCellTone(r.l30 ?? 0, 86, 65, paused).fg }}>{r.l30 ?? 0}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l14 ?? 0, 43, 33, paused).bg, color: leadCellTone(r.l14 ?? 0, 43, 33, paused).fg }}>{r.l14 ?? 0}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l7 ?? 0, 22, 17, paused).bg, color: leadCellTone(r.l7 ?? 0, 22, 17, paused).fg }}>{r.l7 ?? 0}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: leadCellTone(r.l3 ?? 0, 11, 8, paused).bg, color: leadCellTone(r.l3 ?? 0, 11, 8, paused).fg }}>{r.l3 ?? 0}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl30).bg, color: cplVivid(cpl30).fg }} title={cpl30 == null ? "No spend or no leads in 30d" : `${formatCurrency(num(r.spent30))} spent / ${r.l30} leads (30d)`}>{cpl30 == null ? "—" : formatCurrency(cpl30)}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl14).bg, color: cplVivid(cpl14).fg }} title={cpl14 == null ? "No spend or no leads in 14d" : `${formatCurrency(num(r.spent14))} spent / ${r.l14} leads (14d)`}>{cpl14 == null ? "—" : formatCurrency(cpl14)}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cplVivid(cpl7).bg, color: cplVivid(cpl7).fg }} title={cpl7 == null ? "No spend or no leads in 7d" : `${formatCurrency(num(r.spent7))} spent / ${r.l7} leads (7d)`}>{cpl7 == null ? "—" : formatCurrency(cpl7)}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cpdVivid(cpd30).bg, color: cpdVivid(cpd30).fg }}>{cpd30 == null ? "—" : formatCurrency(cpd30)}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cpdVivid(cpd14).bg, color: cpdVivid(cpd14).fg }}>{cpd14 == null ? "—" : formatCurrency(cpd14)}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cpdVivid(cpd7).bg, color: cpdVivid(cpd7).fg }}>{cpd7 == null ? "—" : formatCurrency(cpd7)}</td>
+                    <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{num(r.spent30) != null ? formatCurrency(num(r.spent30)) : "—"}</td>
+                    <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{num(r.spent14) != null ? formatCurrency(num(r.spent14)) : "—"}</td>
+                    <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{num(r.spent7) != null ? formatCurrency(num(r.spent7)) : "—"}</td>
+                  </tr>
+                  {isOpen && (
+                    <tr className="bg-[#f3f7fb]">
+                      <td colSpan={HEADERS.length} className="p-0 border-b border-[#e4ebf2]">
+                        <div className="sticky left-0 p-3 space-y-3" style={{ width: "min(1720px, 100vw - 2rem)" }}>
+                          <div className="rounded-xl border border-[#e4ebf2] bg-white p-4 shadow-sm">
+                            <h3 className="text-sm font-semibold text-[#1f3559] mb-2">V3 Leads &amp; Conversations</h3>
+                            <LeadBreakdown ownerKey={(r.owner_name ?? "").toLowerCase().trim()} />
+                          </div>
+                          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} hideRoutine />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                );
+              })}
+              {filtered.length === 0 && (
+                <tr><td colSpan={HEADERS.length} className="px-4 py-12 text-center text-[#8595a8]">No V3 clients match.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <EmojiLegend />
+        </>
+      )}
+      {textKillOpen && <TextKillDialog name={textKillOpen.name} k={textKillOpen.k} onClose={() => setTextKillOpen(null)} />}
+    </div>
+  );
+}
+
+type TextKillEvent = { contactId: string; name: string; at: string; message: string; ignored: boolean; reply?: string };
+type TextKill = { qualified: number; texted: number; dead: number; ignored: number; events: TextKillEvent[]; computed_at?: string };
+
+/* The sheet writes alias forms ("nyla lamb (nyla sheree)") and middle
+   initials ("maria a blanco") that the deposit view spells differently —
+   index every reasonable spelling of the same name. */
+function ownerKeys(ownerKey: string | null | undefined): string[] {
+  const raw = String(ownerKey ?? "").toLowerCase().trim();
+  if (!raw) return [];
+  const keys = new Set<string>([raw]);
+  const paren = raw.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (paren) { keys.add(paren[1].trim()); keys.add(paren[2].trim()); }
+  for (const base of [...keys]) {
+    const words = base.split(/\s+/).filter(Boolean);
+    if (words.length >= 3) keys.add(`${words[0]} ${words[words.length - 1]}`);
+  }
+  return [...keys].filter(Boolean);
+}
+
+/* Kill Text list: the leads the AI stopped on after the artist texted them,
+   newest first, with her exact message and whether the lead then waited. */
+function TextKillDialog({ name, k, onClose }: { name: string; k: TextKill; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const fmt = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit" });
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-3" onClick={onClose}>
+      <div className="w-full max-w-xl max-h-[80vh] overflow-auto rounded-xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start gap-2">
+          <div className="flex-1">
+            <div className="text-sm font-bold text-[#1f3559]">✍️ Kill Text — {name}</div>
+            <div className="text-[11px] text-[#697a91]">
+              {k.dead} of {k.qualified} qualified leads (last 14 days) lost the AI after the artist texted them herself
+              {k.ignored ? <> · <b className="text-[#b91c1c]">{k.ignored} replied and got silence</b></> : null}
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="text-[#8595a8] hover:text-[#1f3559]" aria-label="Close"><X size={16} /></button>
+        </div>
+        <div className="mt-3 space-y-2">
+          {k.events.length === 0 && <div className="text-[12px] text-[#697a91]">No takeovers in the last 14 days.</div>}
+          {k.events.map((e) => (
+            <div key={e.contactId + e.at} className="rounded-lg border border-[#e4ebf2] p-2.5">
+              <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-[#697a91]">
+                <b className="text-[#1f3559]">{e.name}</b>
+                <span>{fmt(e.at)}</span>
+                {e.ignored && <span className="rounded-full bg-[#fde3e3] px-1.5 py-px text-[10px] font-semibold text-[#b91c1c]">lead replied, no answer</span>}
+              </div>
+              <div className="mt-1 text-[12px] text-[#1e2a3a]"><span className="text-[#8595a8]">Artist wrote:</span> “{e.message}”</div>
+              {e.reply && <div className="mt-0.5 text-[12px] text-[#56678a]"><span className="text-[#8595a8]">Lead then said:</span> “{e.reply}”</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Bottom-of-page cheat sheet: what every emoji on this tab means.
+function EmojiLegend() {
+  const groups: { title: string; items: { e: string; t: string }[] }[] = [
+    {
+      title: "Lead status (in the client dropdown)",
+      items: [
+        { e: "✅", t: "Confirmed deposit (paid)" },
+        { e: "🤖", t: "AI chat → booked, deposit pending" },
+        { e: "📋", t: "Funnel → booked, deposit pending, no AI yet" },
+        { e: "🔥", t: "Got an offer in chat, didn't book" },
+        { e: "🟡", t: "AI active, no offer made yet" },
+        { e: "🔴", t: "AI turned off, lead stalled" },
+        { e: "⚪", t: "Signed up, nothing started" },
+      ],
+    },
+    {
+      title: "Price signals (on a lead)",
+      items: [
+        { e: "🔇", t: "Silent after offer — saw the price, stopped replying" },
+        { e: "💸", t: "Said it's too expensive" },
+      ],
+    },
+    {
+      title: "Client-row flags (in the table)",
+      items: [
+        { e: "🏷️", t: "GHL connected but leads missing the (v3) tag — fix the tag workflow" },
+        { e: "📡", t: "No GHL data ingested for this client yet" },
+        { e: "🟢", t: "Colored dot = Funnel Health score (only in Funnel Health sort)" },
+      ],
+    },
+    {
+      title: "Inside the analysis boxes",
+      items: [
+        { e: "🪜", t: "Two funnels — 📅 booking path (leads → picked a time → paid) · 💬 chat path (no deposit yet → engaged → offer → paid)" },
+        { e: "🚨", t: "Booking rate below the 35% healthy target (✓ = at/above)" },
+        { e: "⚠", t: "Biggest leak — the step losing the most leads" },
+        { e: "📋/🤖", t: "Where bookings come from: funnel vs AI chat" },
+        { e: "📌", t: "Timeline pin = a logged change, with conv% before → after" },
+        { e: "✨", t: "AI recommendation based on the last 30 days (📌 shows if your logged actions worked)" },
+      ],
+    },
+  ];
+  // Collapsed by default — it's a reference, not something to read every
+  // visit (user, 2026-09-14). The choice sticks per browser.
+  const [open, setOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem("cpd-legend-open") === "1"; } catch { return false; }
+  });
+  const toggle = () => setOpen((o) => { try { localStorage.setItem("cpd-legend-open", o ? "0" : "1"); } catch { /* private mode */ } return !o; });
+  return (
+    <div className="rounded-[14px] border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
+      <button onClick={toggle} className="w-full flex items-center gap-2 text-left">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">🧭 What the emojis mean</span>
+        <span className="ml-auto text-[#8595a8] text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+      <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2 xl:grid-cols-4 mt-2">
+        {groups.map((g) => (
+          <div key={g.title}>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8] mb-1">{g.title}</div>
+            <ul className="space-y-0.5">
+              {g.items.map((it) => (
+                <li key={it.e + it.t} className="flex items-start gap-1.5 text-[11px] text-[#34568a] leading-snug">
+                  <span className="shrink-0 w-7 text-center">{it.e}</span>
+                  <span>{it.t}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+      )}
+    </div>
+  );
+}
+
+// Mobile card for one Cost/Deposit row (deposits + conversion, tap to expand).
+const GHL_FLAG: Record<"untagged" | "none", { icon: string; title: string }> = {
+  untagged: { icon: "🏷️", title: "GHL is connected but the leads are missing the (v3) tag — fix the (v3) tag workflow in this sub-account" },
+  none: { icon: "📡", title: "No GHL data ingested for this client yet" },
+};
