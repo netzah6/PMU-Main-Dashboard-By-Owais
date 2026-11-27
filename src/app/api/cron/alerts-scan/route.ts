@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { scanComplianceSynced, scanComplianceDeep, scanMakeScenarios, scanOnboardingPipeline, scanDuplicateLeads, scanIngestHealth, scanAgreementMissing, scanLeadsWhileNotLive, scanSilentLeads, scanDoubleBookings, scanLiveNoPayDate, scanOneboxNotifyMissing, scanPaidNets } from "@/lib/alerts";
 import { autoMergeClientDuplicates } from "@/lib/client-dupes";
 import { scanFirstCycleLogins } from "@/lib/first-cycle";
+import { scanServiceHealth } from "@/lib/service-health";
 
 export const maxDuration = 300;
 
@@ -23,6 +24,8 @@ export async function GET(req: NextRequest) {
   };
   // First, and on its own: are the paid-booking safety nets still running? (Must not wait behind the long scans.)
   const paidNets = await timed("scanPaidNets", () => scanPaidNets(svc));
+  // Outside services (Apify, Claude, Google, GHL, Square…) — owner 11/27/2026.
+  const serviceHealth = await timed("scanServiceHealth", () => scanServiceHealth(svc));
   // Merge exact duplicate Clients Master rows first, so the scans below see one row per client.
   // Quick: close "welcome texts NOT sent" when a teammate texted the logins by hand.
   const firstCycleLogins = await timed("scanFirstCycleLogins", () => scanFirstCycleLogins(svc));
@@ -41,5 +44,5 @@ export async function GET(req: NextRequest) {
     await timed("scanLiveNoPayDate", () => scanLiveNoPayDate(svc)),
     await timed("scanOneboxNotifyMissing", () => scanOneboxNotifyMissing(svc)),
   ];
-  return NextResponse.json({ timestamp: new Date().toISOString(), ms, paidNets, firstCycleLogins, clientDupes, synced, deep, make, onboarding, dupes, ingest, agreement, notLive, silentLeads, doubleBookings, payDate, oneboxNotify });
+  return NextResponse.json({ timestamp: new Date().toISOString(), ms, paidNets, serviceHealth, firstCycleLogins, clientDupes, synced, deep, make, onboarding, dupes, ingest, agreement, notLive, silentLeads, doubleBookings, payDate, oneboxNotify });
 }
