@@ -35,7 +35,8 @@ const TABS: Tab[] = [
   { label: "🩹 Leaks", href: "/leaks", adminOnly: true },
   // Coach-facing feed (client filled their info-request form, …). Hidden from the menu
   // (page still exists at /notifications) — owner request 2026-10-15.
-  { label: "💰 CPD", href: "/cost-per-deposit", adminOnly: true }, // CEO only — user request 2026-08-27; renamed from "Cost / Deposit" 2026-09-22
+  // CPD moved inside Performance as an admin-only view (owner, 11/27/2026); the old link redirects there.
+  { label: "💰 CPD", href: "/cost-per-deposit", adminOnly: true, hidden: true },
   { label: "💵 Deposits", href: "/deposits" },
   { label: "📅 Bookings", href: "/bookings", collapsed: true },
   { label: "🧲 Leads", href: "/leads", collapsed: true },

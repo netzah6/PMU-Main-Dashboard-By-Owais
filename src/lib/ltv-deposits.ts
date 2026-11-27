@@ -23,6 +23,27 @@ const money = (v: unknown) => { const n = parseFloat(String(v ?? "").replace(/[^
 const s = (v: unknown) => String(v ?? "").trim();
 
 export async function getLtvDeposits(): Promise<Record<string, LtvDeposit>> {
+  return (await getLtvData()).byName;
+}
+
+/* "On average, how much is each client worth to me" (owner, 11/27/2026):
+   lifetime service fees + lead deposits kept (minus refunds), per client in
+   the LTV sheet. Same client count as the LTV tab's "Average LTV". */
+export type LtvWorth = { clients: number; fees: number; deposits: number; refunds: number; withDeposits: number };
+export async function getLtvWorth(): Promise<LtvWorth> {
+  const { byName, rows } = await getLtvData();
+  const paid = rows.filter((r) => r.ltv > 0);
+  const v = Object.values(byName);
+  return {
+    clients: paid.length,
+    fees: paid.reduce((t, r) => t + r.ltv, 0),
+    deposits: v.reduce((t, x) => t + x.deposits, 0),
+    refunds: v.reduce((t, x) => t + x.refunds, 0),
+    withDeposits: v.filter((x) => x.deposits > x.refunds).length,
+  };
+}
+
+async function getLtvData(): Promise<{ byName: Record<string, LtvDeposit>; rows: { name: string; ltv: number }[] }> {
   const svc = createServiceClient();
   const all = (table: string) => fetchAllRows<Row>((a, b) => svc.from(table).select("data").order("id").range(a, b));
   const [cm, pays, ltv, deps, refunds] = await Promise.all([
@@ -84,5 +105,5 @@ export async function getLtvDeposits(): Promise<Record<string, LtvDeposit>> {
       businesses: [...(prev?.businesses ?? []), ...mine.map((b) => bizLabel.get(b) ?? b)],
     };
   }
-  return out;
+  return { byName: out, rows };
 }

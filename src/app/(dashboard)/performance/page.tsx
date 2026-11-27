@@ -10,6 +10,8 @@ import { useUser } from "@/lib/hooks/useUser";
 import { ActivityLog } from "@/components/activity/ActivityLog";
 import { ClientTasks } from "@/components/activity/ClientTasks";
 import type { FbTrack } from "@/lib/fb-tracking";
+import { ClientWorthBox } from "@/components/performance/ClientWorthBox";
+import { CostPerDepositView } from "@/components/performance/CostPerDepositView";
 
 interface PerfRow {
   sheet_row: number;
@@ -247,7 +249,39 @@ function AdSpendNudge({ sheetRow, lastAskedAt, onSent }: { sheetRow: number; las
   );
 }
 
+/* CPD moved in here as an admin-only view (owner, 11/27/2026); the old
+   /cost-per-deposit link lands on ?view=cpd. Everyone else sees Performance only. */
 export default function PerformancePage() {
+  const { role } = useUser();
+  const isAdmin = role === "admin";
+  const [view, setView] = useState<"perf" | "cpd">("perf");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("view") === "cpd") setView("cpd");
+  }, []);
+  const pick = (v: "perf" | "cpd") => {
+    setView(v);
+    const u = new URL(window.location.href);
+    if (v === "cpd") u.searchParams.set("view", "cpd"); else u.searchParams.delete("view");
+    window.history.replaceState(null, "", u.toString());
+  };
+  if (!isAdmin) return <PerformanceView />;
+  return (
+    <div>
+      <div className="px-3 md:px-4 pt-3 flex gap-1 border-b border-[#e4ebf2]">
+        {([["perf", "📈 Performance"], ["cpd", "💰 CPD"]] as const).map(([k, label]) => (
+          <button key={k} onClick={() => pick(k)}
+            className={cn("px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+              view === k ? "text-[#0e8f88] border-[#15B7AE]" : "text-[#697a91] border-transparent hover:text-[#1e2a3a]")}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === "cpd" ? <CostPerDepositView /> : <PerformanceView showWorth />}
+    </div>
+  );
+}
+
+function PerformanceView({ showWorth = false }: { showWorth?: boolean }) {
   const [rows, setRows] = useState<PerfRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -358,6 +392,8 @@ export default function PerformancePage() {
           <span className="text-xs text-[#697a91]">{filtered.length} shown</span>
         </div>
       </div>
+
+      {showWorth && <ClientWorthBox />}
 
       {error ? (
         <div className="px-4 py-3 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-sm">
