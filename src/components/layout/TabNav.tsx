@@ -25,6 +25,11 @@ const TABS: Tab[] = [
   { label: "🔁 Win-back", href: "/winback", adminOnly: true },
   // Sales + Subs sit right after AI, always visible (user request 2026-09-16).
   { label: "💼 Sales", href: "/sales", adminOnly: true }, // sales board (setter + closer KPIs & to-dos), demo checker, coach tracker
+  // The appointment setter's discovery-call script: one page that splits into
+  // Quick Start Call (brows under $400) or Demo Call (owner, 11/27/2026). Sales
+  // seats get it on their bar right after Sales; admins and coaches can open
+  // it too, under "⋯ More".
+  { label: "📞 Call Script", href: "/call-script", adminOnly: true, collapsed: true, alsoRoles: ["sales", "closer", "setter", "editor"] },
   { label: "🔄 Subs", href: "/subscriptions", adminOnly: true }, // Square + dashboard billing — admins only
   // Hidden from the menu (page still exists at /payment-check) — owner request 2026-10-30.
   { label: "✅ Tasks", href: "/tasks" },
@@ -97,7 +102,7 @@ const MEDIA_BUYER_TABS = new Set([
 
 // Sales seats: the Sales tab plus Tasks (the tasks API already shows a
 // non-admin only the tasks assigned to them — user request 2026-09-17).
-const SALES_TABS = new Set(["/sales", "/tasks", "/esign"]);
+const SALES_TABS = new Set(["/sales", "/call-script", "/tasks", "/esign"]);
 
 const ALLOWLISTS: Partial<Record<NonNullable<UserRole>, Set<string>>> = {
   va: VA_TABS,
