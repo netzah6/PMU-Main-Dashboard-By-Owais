@@ -1,0 +1,653 @@
+<!doctype html>
+<!-- Discovery Call Script for the appointment setter (owner, 11/27/2026).
+     Team only: this folder is NOT on the public list in src/middleware.ts, so it asks for a dashboard login.
+     Shown inside the dashboard on the Call Script tab (src/app/(dashboard)/call-script). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Discovery Call Script</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700&family=Poppins:wght@400;500;600;700&display=swap">
+<style>
+:root{padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+html,body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+/* Layout: one narrow column for the shared opening and questions, then the page widens and forks into two lanes (Path A | Path B). Shared answers sit below the lanes. */
+:root{
+  /* One white look, the same as the presentation slides: white ground, black ink, teal and blue from the logo. */
+  --bg:#ffffff; --surface:#ffffff; --tint:#f7fafb; --ink:#171717; --muted:#5b6470; --line:#e6e9ee; --line-strong:#cfd6dd;
+  --a-fill:#2ec4c6; --a-on:#0f1519; --a-ink:#12797b; --a-soft:#e8f9f9;
+  --b-fill:#4a6b9b; --b-on:#ffffff; --b-ink:#3d5a86; --b-soft:#e9eff8;
+  --fork-bg:#e8f9f9; --fork-fg:#171717; --fork-line:#2ec4c6; --fork-accent:#12797b; --fork-b:#3d5a86; --fork-box:#ffffff; --fork-muted:#5b6470;
+  --ph-ink:#3d5a86; --ph-soft:#e2eaf6;
+  --no-ink:#b42318; --no-soft:#fdecea;
+  --logo-bg:#ffffff;
+  --display:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --body:"Poppins","Segoe UI",system-ui,sans-serif;
+  color-scheme:light;
+}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.55}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+h1,h2,h3,h4,p,ol,ul,dl,dd,figure{margin:0}
+ol,ul{padding:0;list-style:none}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--ph-ink);outline-offset:2px;border-radius:6px}
+
+/* top bar */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--surface);border-bottom:1px solid var(--line)}
+.top-in{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:14px;padding-block:9px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.logo{flex:none;height:36px;width:auto;background:var(--logo-bg);border-radius:8px;padding:3px 6px;display:block}
+.nav{display:flex;gap:6px;overflow-x:auto;min-width:0;flex:1;scrollbar-width:none}
+.nav::-webkit-scrollbar{display:none}
+.nav button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:5px 12px;font-size:.84rem;font-weight:500;white-space:nowrap;cursor:pointer;color:var(--muted)}
+.nav button:hover{color:var(--ink);border-color:var(--line-strong)}
+.reset{border:1px solid var(--line-strong);background:var(--tint);border-radius:8px;padding:6px 12px;font-size:.84rem;font-weight:600;white-space:nowrap;cursor:pointer}
+.reset[data-armed="1"]{background:var(--no-soft);color:var(--no-ink);border-color:var(--no-ink)}
+
+/* page frame */
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:44px;padding-block:28px 72px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.col{width:100%;max-width:760px;margin-inline:auto;display:flex;flex-direction:column;gap:16px;min-width:0}
+section{scroll-margin-top:calc(env(safe-area-inset-top,0px) + 68px)}
+.eyebrow{font-size:.74rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(1.9rem,4.8vw,2.7rem);line-height:1.1;letter-spacing:-.02em;text-wrap:balance}
+h2{font-family:var(--display);font-weight:700;font-size:1.5rem;line-height:1.2;letter-spacing:-.02em;text-wrap:balance}
+
+/* script text */
+.lines{display:flex;flex-direction:column;gap:11px}
+.say{font-size:1.0625rem;line-height:1.55}
+.note{font-size:.84rem;line-height:1.45;color:var(--muted)}
+.tag{display:inline-block;font-size:.66rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--line-strong);border-radius:4px;padding:0 5px;margin-right:6px;vertical-align:1px;color:var(--muted)}
+.ph{font-weight:600;color:var(--ph-ink);background:var(--ph-soft);border-radius:4px;padding:0 .3em;overflow-wrap:anywhere}
+.ph.is-filled{background:transparent;padding:0;border-bottom:2px solid var(--ph-soft)}
+
+/* answer fields */
+.field{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:600;color:var(--muted)}
+.field input{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 10px;font-size:1rem;font-weight:500;width:100%;max-width:300px}
+.field input::placeholder{color:var(--muted);opacity:.7;font-weight:400}
+
+/* questions */
+.qs{counter-reset:q;display:flex;flex-direction:column;gap:14px}
+.qs>li{counter-increment:q;display:grid;grid-template-columns:2.1rem minmax(0,1fr);gap:0 8px}
+.qs>li::before{content:counter(q);font-family:var(--display);font-weight:600;font-size:.95rem;color:var(--muted);padding-top:.12rem;font-variant-numeric:tabular-nums}
+.qs .body{display:flex;flex-direction:column;gap:8px;min-width:0}
+#start{margin-bottom:-20px}
+.qs .key{background:var(--a-soft);border:1px solid var(--a-fill);border-radius:12px;padding:12px 14px;gap:9px}
+.qs .key .say{font-weight:600}
+
+/* the fork */
+.fork{display:flex;flex-direction:column;gap:0}
+.fork-card{width:100%;max-width:760px;margin-inline:auto;background:var(--fork-bg);color:var(--fork-fg);border:1px solid var(--fork-line);border-radius:16px;padding:20px 22px;display:flex;flex-direction:column;gap:14px}
+.fork-card .eyebrow{color:var(--fork-accent)}
+.fork-card .note{color:var(--fork-muted)}
+.fork-card .tag{color:var(--fork-muted);border-color:var(--fork-muted)}
+.fork-row{display:flex;flex-wrap:wrap;align-items:center;gap:14px 22px}
+.price-box{display:flex;flex-direction:column;gap:2px;background:var(--fork-box);border:1px solid var(--fork-muted);border-radius:12px;padding:8px 16px;min-width:150px}
+.price-label{font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--fork-muted)}
+.price-val{font-family:var(--display);font-weight:700;font-size:1.9rem;line-height:1.1;font-variant-numeric:tabular-nums}
+.fork-result{flex:1;min-width:220px;font-size:1.05rem;font-weight:600}
+.fork-result[data-path="a"]{color:var(--fork-accent)}
+.fork-result[data-path="b"]{color:var(--fork-b)}
+.seg{display:flex;flex-wrap:wrap;gap:8px}
+.seg button{border:1px solid var(--fork-muted);background:transparent;color:var(--fork-fg);border-radius:10px;padding:9px 14px;font-weight:600;font-size:.92rem;cursor:pointer}
+.seg button[data-view="a"][aria-pressed="true"]{background:var(--a-fill);border-color:var(--a-fill);color:var(--a-on)}
+.seg button[data-view="b"][aria-pressed="true"]{background:var(--b-fill);border-color:var(--b-fill);color:var(--b-on)}
+.seg button[data-view="both"][aria-pressed="true"]{background:var(--fork-fg);border-color:var(--fork-fg);color:var(--fork-bg)}
+
+.branches{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:20px;height:46px}
+.stem{position:absolute;left:50%;top:0;width:2px;height:16px;margin-left:-1px;background:var(--line-strong)}
+.arm{margin-top:15px;border-top:2px solid;height:31px}
+.arm-a{margin-left:50%;margin-right:-10px;border-left:2px solid;border-top-left-radius:16px;color:var(--a-fill)}
+.arm-b{margin-right:50%;margin-left:-10px;border-right:2px solid;border-top-right-radius:16px;color:var(--b-fill)}
+
+.lanes{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+.lane{background:var(--surface);border:1px solid var(--line-strong);box-shadow:0 10px 30px -18px rgba(23,23,23,.28);border-radius:16px;overflow:hidden;min-width:0;transition:opacity .2s}
+.lane-head{padding:18px 20px;display:flex;flex-direction:column;gap:4px}
+.lane-a .lane-head{background:var(--a-fill);color:var(--a-on)}
+.lane-b .lane-head{background:var(--b-fill);color:var(--b-on)}
+.lane-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.lane-live{display:none;background:var(--logo-bg);border-radius:999px;padding:1px 9px;letter-spacing:.05em}
+.lane-a .lane-live{color:var(--a-on)}
+.lane-b .lane-live{color:var(--b-fill)}
+.lane-head h3{font-family:var(--display);font-weight:700;font-size:1.35rem;line-height:1.2;letter-spacing:-.02em}
+.facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 12px;padding:14px 20px;font-size:.88rem;border-bottom:1px solid var(--line)}
+.facts dt{font-weight:700;color:var(--muted)}
+.lane-a .facts{background:var(--a-soft)}
+.lane-b .facts{background:var(--b-soft)}
+.steps{counter-reset:s}
+.step{counter-increment:s;padding:18px 20px;display:flex;flex-direction:column;gap:11px}
+.step+.step{border-top:1px solid var(--line)}
+.step h4{font-family:var(--display);font-weight:700;font-size:1.02rem;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+.step h4::before{content:counter(s);flex:none;width:1.6rem;height:1.6rem;border-radius:50%;display:grid;place-items:center;font-size:.82rem}
+.lane-a .step h4::before{background:var(--a-fill);color:var(--a-on)}
+.lane-b .step h4::before{background:var(--b-fill);color:var(--b-on)}
+.lanes[data-view="a"] .lane-a .lane-live,.lanes[data-view="b"] .lane-b .lane-live{display:inline-block}
+.lanes[data-view="a"] .lane-b,.lanes[data-view="b"] .lane-a{opacity:.34;cursor:pointer}
+.lanes[data-view="a"] .lane-b:hover,.lanes[data-view="b"] .lane-a:hover{opacity:.7}
+.lanes[data-view="a"] .lane-a{border-color:var(--a-fill)}
+.lanes[data-view="b"] .lane-b{border-color:var(--b-fill)}
+
+.does{display:flex;flex-direction:column;gap:8px;padding-left:2px}
+.does li{display:grid;grid-template-columns:1.2rem minmax(0,1fr);gap:0 6px;font-size:1.0625rem;line-height:1.5}
+.does li::before{content:"";width:.5rem;height:.5rem;border-radius:50%;background:var(--a-fill);margin-top:.55rem}
+.nums{display:grid;grid-template-columns:auto minmax(0,1fr);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:.96rem}
+.nums dt,.nums dd{padding:9px 12px;border-top:1px solid var(--line)}
+.nums dt:first-of-type,.nums dd:first-of-type{border-top:0}
+.nums dt{font-weight:700;background:var(--a-soft);white-space:nowrap;font-variant-numeric:tabular-nums}
+.ifline{border:1px dashed var(--line-strong);border-radius:10px;padding:11px 13px;display:flex;flex-direction:column;gap:8px}
+
+/* special cases */
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.94rem}
+th,td{text-align:left;vertical-align:top;padding:11px 14px;border-top:1px solid var(--line)}
+thead th{border-top:0;font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+td:first-child{font-weight:600;width:38%;min-width:150px}
+
+/* objections */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{border:1px solid var(--line-strong);background:var(--surface);border-radius:999px;padding:6px 14px;font-size:.88rem;font-weight:600;cursor:pointer}
+.chips button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.objs{display:flex;flex-direction:column;gap:8px}
+.obj{background:var(--tint);border:1px solid var(--line);border-radius:12px}
+.obj summary{cursor:pointer;padding:13px 16px;font-weight:600;display:flex;align-items:center;gap:10px;list-style:none}
+.obj summary::-webkit-details-marker{display:none}
+.obj summary::after{content:"+";margin-left:auto;font-family:var(--display);font-size:1.2rem;color:var(--muted);line-height:1}
+.obj[open] summary::after{content:"\2212"}
+.obj .lines{padding:0 16px 16px}
+.pill{flex:none;font-size:.66rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;border-radius:999px;padding:2px 8px}
+.pill-any{background:var(--tint);color:var(--muted);border:1px solid var(--line)}
+.pill-a{background:var(--a-soft);color:var(--a-ink)}
+.pill-b{background:var(--b-soft);color:var(--b-ink)}
+
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.duo>div{border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.duo .no{background:var(--no-soft)}
+.duo .no b{color:var(--no-ink)}
+.duo .yes{background:var(--a-soft)}
+.duo .yes b{color:var(--a-ink)}
+.duo b{font-size:.76rem;letter-spacing:.08em;text-transform:uppercase}
+
+@media (max-width:860px){
+  .wrap{gap:36px}
+  .branches{display:none}
+  .fork-card{margin-bottom:16px}
+  .lanes{grid-template-columns:minmax(0,1fr)}
+  .lanes[data-view="a"] .lane-b,.lanes[data-view="b"] .lane-a{display:none}
+  .seg button{flex:1 1 auto}
+  .duo{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){.lane{transition:none}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <img class="logo" width="45" height="36" alt="Permanent Makeup Bookings On Demand" src="/brand-logo.png">
+    <nav class="nav" aria-label="Jump to">
+      <button type="button" data-go="open">Open</button>
+      <button type="button" data-go="questions">Questions</button>
+      <button type="button" data-go="split">The split</button>
+      <button type="button" data-go="cases">Special cases</button>
+      <button type="button" data-go="objections">Objections</button>
+    </nav>
+    <button type="button" class="reset" id="reset">New call</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="col" id="start">
+    <h1>Discovery Call Script</h1>
+  </section>
+
+  <section class="col" id="open">
+    <p class="eyebrow">Part 1</p>
+    <h2>Open the call</h2>
+    <div class="lines">
+      <p class="say">Hey <span class="ph" data-ph="name">NAME</span>, this is <span class="ph">MY NAME</span> with Permanent Makeup Bookings On Demand, how are you?</p>
+      <p class="say">Amazing. We have a call scheduled for now, right?</p>
+      <p class="say">Great <span class="ph" data-ph="name">NAME</span>. I would love to ask you a few questions to get a better understanding of your current situation, your goals, and maybe some bottlenecks you are facing, to see if we can help.</p>
+      <p class="say">If I think we can, I will explain the next steps. And if I don't think we can help, I will let you know right away so we don't waste your time. Sounds fair?</p>
+    </div>
+  </section>
+
+  <section class="col" id="questions">
+    <p class="eyebrow">Part 2</p>
+    <h2>Discovery questions</h2>
+    <p class="note"><span class="tag">Note</span>Ask all of them, in this order. Type her numbers and her price in the boxes. You need them for the next part.</p>
+    <ol class="qs">
+      <li><div class="body"><p class="say">Perfect <span class="ph" data-ph="name">NAME</span>, so what motivated you to schedule a call today?</p></div></li>
+      <li><div class="body"><p class="say">How long have you been a permanent makeup artist?</p></div></li>
+      <li><div class="body"><p class="say">Are you full time or part time?</p></div></li>
+      <li><div class="body">
+        <p class="say">On average, how many clients do you see per week or per month right now?</p>
+        <label class="field" for="f-now">Where she is today
+          <input id="f-now" type="text" autocomplete="off" placeholder="8 clients a month">
+        </label>
+      </div></li>
+      <li><div class="body"><p class="say">How do you currently get new clients? Do you have any system in place?</p></div></li>
+      <li><div class="body"><p class="say">What permanent makeup services do you offer?</p></div></li>
+      <li><div class="body key">
+        <p class="say">How much do you charge for the first session of your eyebrow service?</p>
+        <label class="field" for="f-price">Her price (this decides the path)
+          <input id="f-price" type="text" inputmode="decimal" autocomplete="off" placeholder="350">
+        </label>
+        <p class="note"><span class="tag">Note</span>Use the eyebrow service she named: microblading, microshading or powder brows. Do not react to the price and do not tell her why you ask.</p>
+      </div></li>
+      <li><div class="body">
+        <p class="say">What is your goal? How many new clients or bookings are you looking for?</p>
+        <label class="field" for="f-goal">Her goal
+          <input id="f-goal" type="text" autocomplete="off" placeholder="20 clients a month">
+        </label>
+      </div></li>
+      <li><div class="body"><p class="say">Ok, so right now you are at <span class="ph" data-ph="now">XXX</span> and you want to get to <span class="ph" data-ph="goal">YYY</span>. What do you think is holding you back from getting there?</p></div></li>
+      <li><div class="body"><p class="say">What have you tried in the past to fix this? Why do you feel it didn't work?</p></div></li>
+      <li><div class="body"><p class="say">How long have things been this way?</p></div></li>
+      <li><div class="body"><p class="say">How soon would you like to reach <span class="ph" data-ph="goal">YYY</span>?</p></div></li>
+      <li><div class="body"><p class="say">Perfect <span class="ph" data-ph="name">NAME</span>. Before I move on to the next step, is there anything else you want to tell me about your business, or anything you think I missed?</p></div></li>
+    </ol>
+  </section>
+
+  <section class="fork" id="split">
+    <div class="fork-card">
+      <p class="eyebrow">Part 3 · The split</p>
+      <h2>Her price decides the path</h2>
+      <div class="fork-row">
+        <div class="price-box">
+          <span class="price-label">First brow session</span>
+          <span class="price-val" id="price-show">$ ?</span>
+        </div>
+        <p class="fork-result" id="fork-result" aria-live="polite">Type her price in question 7 and the right path lights up. Or pick a path here.</p>
+      </div>
+      <div class="seg" role="group" aria-label="Which path to show">
+        <button type="button" data-view="a" aria-pressed="false">Path A · under $400</button>
+        <button type="button" data-view="both" aria-pressed="true">Show both</button>
+        <button type="button" data-view="b" aria-pressed="false">Path B · $400 or more</button>
+      </div>
+      <p class="note"><span class="tag">Note</span>Exactly $400 is Path B. She never needs to know there are two paths.</p>
+    </div>
+
+    <div class="branches" aria-hidden="true"><span class="stem"></span><span class="arm arm-a"></span><span class="arm arm-b"></span></div>
+
+    <div class="lanes" id="lanes" data-view="both">
+
+      <article class="lane lane-a" data-lane="a" aria-labelledby="lane-a-title">
+        <div class="lane-head">
+          <div class="lane-top"><span>Path A</span><span>Under $400</span><span class="lane-live">This call</span></div>
+          <h3 id="lane-a-title">Book the Quick Start Call</h3>
+        </div>
+        <dl class="facts">
+          <dt>With</dt><dd>Her client success coach (Stephanie or Viridiana)</dd>
+          <dt>Offer</dt><dd>Pay Per Appointment. You explain it on this call.</dd>
+          <dt>Calendar</dt><dd>Quick Start Call</dd>
+          <dt>Goal</dt><dd>She says yes and the call is booked before you hang up. No demo call.</dd>
+        </dl>
+        <ol class="steps">
+          <li class="step">
+            <h4>Tell her the good news</h4>
+            <div class="lines">
+              <p class="say">Amazing <span class="ph" data-ph="name">NAME</span>. From everything you have told me, we can definitely help you get from <span class="ph" data-ph="now">XXX</span> to <span class="ph" data-ph="goal">YYY</span>.</p>
+              <p class="say">And I have good news for you. You are a great fit for our new Pay Per Appointment program.</p>
+              <p class="say">It is a brand new program, and our coaches can only start a limited number of new artists each week, because we build everything for you. So if you like what you hear, I want to save your spot today.</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Show her what we do for her</h4>
+            <div class="lines">
+              <p class="say">Here is what we do for you. We build your whole Deposit-First Booking System, and we run it for you.</p>
+              <ul class="does">
+                <li>We create your campaign on Facebook and Instagram, and we manage your ads.</li>
+                <li>We bring you new potential clients from your area.</li>
+                <li>We qualify them, so you only get serious people.</li>
+                <li>We warm them up and we follow up with them, so they are excited to come in.</li>
+                <li>And we book them straight on your calendar, with a deposit already paid.</li>
+              </ul>
+              <p class="say">So you don't chase anyone and you don't answer messages all day. You open your calendar and you see new clients who already paid a deposit. You don't have to lift a finger to get the booking.</p>
+              <p class="note"><span class="tag">Note</span>Say this part slowly and with energy. This is what makes her want it. Then go straight to the numbers.</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Explain the offer</h4>
+            <div class="lines">
+              <p class="say">And the best part: you do not pay us anything to start. You only pay when it works. Here are the numbers.</p>
+              <dl class="nums">
+                <dt>$0 today</dt><dd>Nothing to pay us to get started.</dd>
+                <dt>$50 deposit</dt><dd>Every new client pays a $50 deposit to book with you. That deposit goes to us.</dd>
+                <dt>$80 per appointment</dt><dd>Only after the client came in and paid you.</dd>
+                <dt>100% yours</dt><dd>Second sessions and upsells. We take nothing from those.</dd>
+                <dt>$20 a day</dt><dd>Your own ad budget. This is what brings the new clients in.</dd>
+              </dl>
+              <p class="note"><span class="tag">Note</span>Say the numbers slowly, one by one. Do not add other numbers and do not promise a number of clients.</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Get her yes</h4>
+            <div class="lines">
+              <p class="say">So you only pay us after a new client came in and paid you. How does that sound, <span class="ph" data-ph="name">NAME</span>?</p>
+              <p class="say">And are you comfortable investing $20 a day in your ads?</p>
+              <p class="note"><span class="tag">Note</span>If she has a question, open Objections below, answer it, and come back here. If she cannot invest $20 a day, see Special cases.</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Check her area</h4>
+            <div class="lines">
+              <p class="say">Perfect. What is your business zip code? I want to make sure your area is still open.</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Present the Quick Start Call</h4>
+            <div class="lines">
+              <p class="say">Great, so let's save your spot. The next step is your Quick Start Call with your client success coach. It is about 45 minutes on Zoom.</p>
+              <p class="say">On that call your coach will show you everything you get, connect your social media, and set you up for success, so we can get you live fast.</p>
+              <p class="say">For that call I need three things from you. First, to be in front of a computer or a laptop with internet connection. Will that be possible?</p>
+              <p class="say">Perfect! The second thing is to have all the decision makers on the call, whether it is your husband, your marketing director, or anyone who helps you make the decision, so they get all the information too. Is that possible as well?</p>
+              <p class="say">Great. The third thing is very important. I need you to be logged in to your Facebook account before the call starts. Please log in 10 minutes before, on the same computer. Not everyone remembers their Facebook password, and I don't want you to lose your time with your coach on that. Can you do that for me?</p>
+              <p class="note"><span class="tag">Note</span>If she is not sure about her Facebook login, ask her to test it today, right after this call.</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Book it</h4>
+            <div class="lines">
+              <p class="say">Ok, let me check the calendar. I can hold a spot for you on <span class="ph">DAY AND TIME 1</span> or <span class="ph">DAY AND TIME 2</span>. Which works better for you?</p>
+              <p class="say">The sooner you meet your coach, the sooner your ads go live and the bookings start coming in.</p>
+              <p class="note"><span class="tag">Note</span>Use the Quick Start Call calendar. Offer the two closest times, today or tomorrow when you can.</p>
+              <div class="ifline">
+                <p class="note"><span class="tag">If she wants to wait</span>Say this, then offer the two times again.</p>
+                <p class="say">I understand. I can hold this spot for you today. If we wait, I can't promise it will still be open. Let's book it now. You will meet your coach and see everything before anything goes live.</p>
+              </div>
+              <p class="say">Is there any reason why you would not be able to make it on <span class="ph">DATE</span> at <span class="ph">TIME</span>?</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Close the call</h4>
+            <div class="lines">
+              <p class="say">Great <span class="ph" data-ph="name">NAME</span>! Your spot is saved. I am sending you the details of the call with the Zoom link right now.</p>
+              <p class="say">Remember: have your decision makers with you, and be at your computer, logged in to Facebook, 10 minutes before the call.</p>
+              <p class="say">It was a pleasure to talk with you. Your coach is looking forward to meeting you on <span class="ph">DATE</span> at <span class="ph">TIME</span>, and maybe in a few days we will already start to fill up your calendar with new bookings. (smile)</p>
+              <p class="note"><span class="tag">Note</span>Before you move on, text her: the date, the time, the Zoom link, and the reminder to bring her decision makers and log in to Facebook 10 minutes before.</p>
+            </div>
+          </li>
+        </ol>
+      </article>
+
+      <article class="lane lane-b" data-lane="b" aria-labelledby="lane-b-title">
+        <div class="lane-head">
+          <div class="lane-top"><span>Path B</span><span>$400 or more</span><span class="lane-live">This call</span></div>
+          <h3 id="lane-b-title">Book the Demo Call</h3>
+        </div>
+        <dl class="facts">
+          <dt>With</dt><dd>Our closer</dd>
+          <dt>Offer</dt><dd>Our closer presents it on the demo. You do not talk about price.</dd>
+          <dt>Calendar</dt><dd>Demo Call</dd>
+          <dt>Goal</dt><dd>The demo is booked. Do not mention Pay Per Appointment.</dd>
+        </dl>
+        <ol class="steps">
+          <li class="step">
+            <h4>Present the Demo Call</h4>
+            <div class="lines">
+              <p class="say">Amazing <span class="ph" data-ph="name">NAME</span>. So, from everything you have told me, we can definitely help you reach the goal of <span class="ph" data-ph="goal">YYY</span>.</p>
+              <p class="say">The next step is a 30 to 45 minute demo call with one of our specialists. They will walk you through the entire system and show you how we can help you get from <span class="ph" data-ph="now">XXX</span> to <span class="ph" data-ph="goal">YYY</span> without you being the bottleneck.</p>
+              <p class="say">They will show you how we get potential clients to request appointments with you, how we qualify them, and how we connect them with you. I want to make sure you know everything and what to expect, ok?</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Check her area</h4>
+            <div class="lines">
+              <p class="say">Ok. Now, we work with one permanent makeup artist per area, according to our exclusivity policy, and I want to make sure we don't already work with another artist in your area. What is your business zip code?</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Two things she needs for the call</h4>
+            <div class="lines">
+              <p class="say">For the call I will need two things from you. First, to be in front of a computer or a laptop with internet connection. Will that be possible?</p>
+              <p class="say">Perfect! The second thing is to have all the decision makers on the call, whether it is your husband, your marketing director, or anyone who helps you make the decision, so they get all the information too. Is that possible as well?</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Book it</h4>
+            <div class="lines">
+              <p class="say">Ok, let me check for availability. I have <span class="ph">DAY AND TIME 1</span> or <span class="ph">DAY AND TIME 2</span>. Which works better for you?</p>
+              <p class="note"><span class="tag">Note</span>Use the Demo Call calendar. Offer the two closest times. A demo in the next 3 days closes far more often than a later one.</p>
+              <p class="say">Amazing <span class="ph" data-ph="name">NAME</span>. You will get an email invitation shortly, and the call will be on Zoom. Our specialist will share the screen and show you how it works. In the email you will also find testimonials, videos and interviews of other PMU artists who have used our system for years, in case you want to take a look.</p>
+              <p class="say">Is there any reason why you would not be able to make the appointment on <span class="ph">DATE</span> at <span class="ph">TIME</span>?</p>
+            </div>
+          </li>
+          <li class="step">
+            <h4>Close the call</h4>
+            <div class="lines">
+              <p class="say">Great <span class="ph" data-ph="name">NAME</span>! I am excited. It was a pleasure to talk with you. Our specialist is looking forward to showing you how it works on <span class="ph">DATE</span> at <span class="ph">TIME</span>, and maybe we will even start to fill up your calendar with some new bookings in a few days. (smile)</p>
+              <p class="say">Oh, by the way <span class="ph" data-ph="name">NAME</span>, remind our specialist on the demo call to show you our AI assistant. It chats with your new potential clients for you and helps you book more of them, ok?</p>
+            </div>
+          </li>
+        </ol>
+      </article>
+
+    </div>
+  </section>
+
+  <section class="col" id="cases">
+    <p class="eyebrow">When it is not clear</p>
+    <h2>Special cases</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>What happens</th><th>What you do</th></tr></thead>
+        <tbody>
+          <tr><td>She charges exactly $400</td><td>Path B. Book the Demo Call.</td></tr>
+          <tr><td>She gives two prices or a range</td><td>Ask: "Which eyebrow service do you book the most?" Use that price.</td></tr>
+          <tr><td>Under $400, but she cannot invest $20 a day in ads</td><td>Explain that the ads are what bring the new clients, so without them the system has nobody to book. If it is still a no, she is not a fit right now. Thank her and end the call kindly.</td></tr>
+          <tr><td>Under $400, and she asks to see a demo first</td><td>"Of course. Your coach shows you the whole system on your Quick Start Call, before anything goes live." Then book the Quick Start Call.</td></tr>
+          <tr><td>$400 or more, and she asks about paying per appointment</td><td>"Our specialist will go over the options that fit your business on the demo call." Then book the Demo Call.</td></tr>
+          <tr><td>You are not sure which path fits</td><td>Book the Demo Call and write the reason in her notes.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="col" id="objections">
+    <p class="eyebrow">When she asks or pushes back</p>
+    <h2>Objections</h2>
+    <div class="chips" role="group" aria-label="Show objections for">
+      <button type="button" data-f="all" aria-pressed="true">All</button>
+      <button type="button" data-f="any" aria-pressed="false">Any call</button>
+      <button type="button" data-f="a" aria-pressed="false">Path A</button>
+      <button type="button" data-f="b" aria-pressed="false">Path B</button>
+    </div>
+    <div class="objs" id="objs">
+
+      <details class="obj" data-g="any"><summary><span class="pill pill-any">Any</span>"I don't have time for another call."</summary><div class="lines">
+        <p class="say">I understand that you are busy, because I am busy too. Maybe you are saying that because you are not sure the call will give you enough value to take time away from your schedule.</p>
+        <p class="say">I would not ask you to invest your time unless I knew it would help you get clear on your goals, so you can make better decisions in the days and weeks ahead about <span class="ph">HER PROBLEM</span>.</p>
+      </div></details>
+
+      <details class="obj" data-g="any"><summary><span class="pill pill-any">Any</span>"I already tried Facebook ads."</summary><div class="lines">
+        <p class="say">One PMU artist can do microblading and another artist can do the same microblading, and they will get totally different results. It is the same with marketing. Two marketers can run the same type of campaign on Facebook and get totally different results, because it is an art.</p>
+        <p class="say">And it is never only about the Facebook ads. There are other things we do that come together to make those leads excited and give them value.</p>
+      </div></details>
+
+      <details class="obj" data-g="any"><summary><span class="pill pill-any">Any</span>"Do you do Facebook ads?"</summary><div class="lines">
+        <p class="say">Yes, we run Facebook and Instagram ads, but it is not just about running ads. What makes the difference is how you run them. We also have a full qualification system that nurtures and warms up the leads. To build a successful PMU business, ads are just one piece of the puzzle. You need the whole system working together. Does that make sense?</p>
+      </div></details>
+
+      <details class="obj" data-g="any"><summary><span class="pill pill-any">Any</span>"How does it work?"</summary><div class="lines">
+        <p class="note"><span class="tag">Note</span>Give enough to satisfy her, not every detail.</p>
+        <p class="say">That's a great question. To be a successful permanent makeup artist, three things must happen. One, generate the opportunities: we bring the potential clients in through social media. Two, qualify them and get them excited about the service. Three, turn them into bookings. We help you with all three.</p>
+      </div></details>
+
+      <details class="obj" data-g="any"><summary><span class="pill pill-any">Any</span>"Do you do lips and eyeliner, or other PMU services?"</summary><div class="lines">
+        <p class="say">We can do eyeliner and lips, but we mainly focus on eyebrows. Eyebrows are the most wanted service right now, so we can bring in more people for eyebrows at a lower cost than if we put eyeliner or lips up front.</p>
+        <p class="say">You will also make more money this way. After a client does her eyebrows with you and she is happy and excited, you can offer her eyeliner or lips, and she is much more likely to say yes. If we bring her in for lips or eyeliner first, she may not need the eyebrows.</p>
+      </div></details>
+
+      <details class="obj" data-g="any"><summary><span class="pill pill-any">Any</span>"Do you recommend that I require a deposit?"</summary><div class="lines">
+        <p class="say">Absolutely! Your time is valuable, and a deposit is super important. We will show you how to build a personal connection and trust with your clients, so they are happy to pay the deposit.</p>
+      </div></details>
+
+      <details class="obj" data-g="any"><summary><span class="pill pill-any">Any</span>"Will you discount my services?"</summary><div class="lines">
+        <p class="say">One thing we will never do is discount the services of our PMU artists. Our goal is to make our artists as profitable as we can.</p>
+        <p class="say">People pay for value. As long as they see the value in what you offer, they pay the full amount. If they don't see it, they ask for a discount. We will show you how to increase the value of your services so you can charge more.</p>
+      </div></details>
+
+      <details class="obj" data-g="any"><summary><span class="pill pill-any">Any</span>"How many artists do you work with?"</summary><div class="lines">
+        <p class="say">We have worked with more than 400 PMU artists across the country, over more than 8 years. In the past we served many different types of businesses. At some point we decided to let go of all the others and focus 100% on PMU.</p>
+        <p class="say">I believe it is more professional, both for us and for the artists. We know all the problems and we have all the solutions. Much better for everyone.</p>
+      </div></details>
+
+      <details class="obj" data-g="any"><summary><span class="pill pill-any">Any</span>"How can you advertise for me if my Facebook account is restricted?"</summary><div class="lines">
+        <p class="say">That is very common, and it depends on the situation. We have worked with more than 400 PMU artists, so we know exactly how to fix it.</p>
+        <p class="say">We can appeal, we can create a new Facebook business account, or in the worst case we can collect the ad spend and pay Facebook on your behalf.</p>
+      </div></details>
+
+      <details class="obj" data-g="a"><summary><span class="pill pill-a">Path A</span>"How much do you charge?"</summary><div class="lines">
+        <p class="say">It is very simple. $0 today. Every new client pays a $50 deposit to book, and that deposit goes to us. Then it is $80 per appointment, only after the client came in and paid you. Second sessions and upsells are 100% yours. Your only other cost is your own ad budget of $20 a day.</p>
+      </div></details>
+
+      <details class="obj" data-g="a"><summary><span class="pill pill-a">Path A</span>"I need to think about it."</summary><div class="lines">
+        <p class="say">I understand, <span class="ph" data-ph="name">NAME</span>. What is the part you want to think about?</p>
+        <p class="note"><span class="tag">Note</span>Let her answer, and answer that one thing. Then:</p>
+        <p class="say">Remember, you pay nothing today, and you only pay us after a client came in and paid you. On your Quick Start Call you see everything before anything goes live. I can hold your spot today. If we wait, I can't promise it will still be open.</p>
+      </div></details>
+
+      <details class="obj" data-g="a"><summary><span class="pill pill-a">Path A</span>"Why do you keep the $50 deposit?"</summary><div class="lines">
+        <p class="say">The deposit is what lets us start with $0 from you. It also shows the client is serious. Clients who pay a deposit are the ones who show up.</p>
+      </div></details>
+
+      <details class="obj" data-g="a"><summary><span class="pill pill-a">Path A</span>"What if the client does not show up?"</summary><div class="lines">
+        <p class="say">The $80 is only after the client came in and paid you. If she did not come in, you do not pay us the $80.</p>
+      </div></details>
+
+      <details class="obj" data-g="a"><summary><span class="pill pill-a">Path A</span>"Why do I need to spend $20 a day on ads?"</summary><div class="lines">
+        <p class="say">The ads are what put your work in front of new people in your area every day. Without them, the system has nobody to book. $20 a day is the starting budget we ask for.</p>
+      </div></details>
+
+      <details class="obj" data-g="a"><summary><span class="pill pill-a">Path A</span>"Is there a contract?"</summary><div class="lines">
+        <p class="say">There is no long-term contract. You pay per appointment. Your coach will go over the details with you on your Quick Start Call.</p>
+      </div></details>
+
+      <details class="obj" data-g="a"><summary><span class="pill pill-a">Path A</span>"Do you have a guarantee?"</summary><div class="lines">
+        <p class="say">With Pay Per Appointment you only pay us after a new client came in and paid you. So you are never paying for a client who did not come.</p>
+      </div></details>
+
+      <details class="obj" data-g="b"><summary><span class="pill pill-b">Path B</span>"How much do you guys charge?"</summary><div class="lines">
+        <p class="say">We have different packages depending on what you are looking for. Every business is unique, with different needs and different goals, so it really depends. Our specialist will go over the options that fit your business on the demo call.</p>
+        <p class="say">The most important thing is that we guarantee clients who pay a deposit and show up to their appointment.</p>
+      </div></details>
+
+      <details class="obj" data-g="b"><summary><span class="pill pill-b">Path B</span>"Do you have a guarantee?"</summary><div class="lines">
+        <p class="say">Yes, we guarantee clients who pay a deposit and show up to their appointment. What kind of guarantee are you looking for, <span class="ph" data-ph="name">NAME</span>?</p>
+        <p class="note"><span class="tag">Note</span>Let her answer. Then:</p>
+        <p class="say">Our specialist will show you exactly how our guarantee works on the demo call. Are you comfortable with that?</p>
+      </div></details>
+
+      <details class="obj" data-g="b"><summary><span class="pill pill-b">Path B</span>"What will happen if I don't get the clients you promised?"</summary><div class="lines">
+        <p class="say">Great question <span class="ph" data-ph="name">NAME</span>. Let's say that by the end of the 90 days we hit just 26 bookings out of 30. At that point we continue to work for free until we hit the 30 bookings we guarantee, even if it takes more than 90 days.</p>
+        <p class="say">We are not just a marketing company that sends you leads. We see it as a partnership. We check on you, we look at your dashboard and your booking rate, and we give you tips and feedback on how to make things better. We want our artists to succeed. The more bookings they have, the happier they are, and the more they refer other PMU artists to us.</p>
+      </div></details>
+
+    </div>
+  </section>
+
+  <section class="col" id="followup">
+    <p class="eyebrow">Later, when you call a lead back</p>
+    <h2>How to follow up</h2>
+    <div class="duo">
+      <div class="no"><b>Don't say</b><p class="say">"Hey <span class="ph" data-ph="name">NAME</span>, I am just following up with you..."</p></div>
+      <div class="yes"><b>Say</b><p class="say">"Hey <span class="ph" data-ph="name">NAME</span>, I just had time to get back to you. I know we talked <span class="ph">X</span> days ago about you looking to get help with <span class="ph">Y</span>."</p></div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  "use strict";
+  function $(s,r){return (r||document).querySelector(s);}
+  function $$(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));}
+
+  var fields={now:$("#f-now"),goal:$("#f-goal"),price:$("#f-price")};
+  var labels={now:"XXX",goal:"YYY"};
+  var lanes=$("#lanes"), segBtns=$$(".seg button"), result=$("#fork-result"), show=$("#price-show");
+  var IDLE="Type her price in question 7 and the right path lights up. Or pick a path here.";
+
+  function fill(key){
+    var v=(fields[key].value||"").trim();
+    $$('[data-ph="'+key+'"]').forEach(function(el){
+      el.textContent=v||labels[key];
+      el.classList.toggle("is-filled",!!v);
+    });
+  }
+  function setView(v){
+    lanes.setAttribute("data-view",v);
+    segBtns.forEach(function(b){b.setAttribute("aria-pressed",String(b.getAttribute("data-view")===v));});
+  }
+  function onPrice(){
+    var nums=((fields.price.value||"").replace(/,/g,"").match(/\d+(\.\d+)?/g))||[];
+    result.removeAttribute("data-path");
+    if(nums.length===0){show.textContent="$ ?";result.textContent=IDLE;setView("both");return;}
+    if(nums.length>1){
+      show.textContent="$ ?";
+      result.textContent='She gave two prices. Ask: "Which eyebrow service do you book the most?" Then type that one price.';
+      setView("both");return;
+    }
+    var p=parseFloat(nums[0]);
+    show.textContent="$"+p.toLocaleString("en-US");
+    if(p<400){
+      result.textContent="Under $400. Follow Path A: book the Quick Start Call.";
+      result.setAttribute("data-path","a");setView("a");
+    }else{
+      result.textContent=(p===400?"Exactly $400 counts as $400 or more. ":"$400 or more. ")+"Follow Path B: book the Demo Call.";
+      result.setAttribute("data-path","b");setView("b");
+    }
+  }
+
+  ["now","goal"].forEach(function(k){fields[k].addEventListener("input",function(){fill(k);});fill(k);});
+  fields.price.addEventListener("input",onPrice);
+  onPrice();
+
+  segBtns.forEach(function(b){b.addEventListener("click",function(){setView(b.getAttribute("data-view"));});});
+  $$(".lane").forEach(function(l){
+    l.addEventListener("click",function(){
+      var mine=l.getAttribute("data-lane"), v=lanes.getAttribute("data-view");
+      if(v!=="both"&&v!==mine){setView(mine);}
+    });
+  });
+
+  var calm=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  $$("[data-go]").forEach(function(b){
+    b.addEventListener("click",function(){
+      var t=document.getElementById(b.getAttribute("data-go"));
+      if(t){t.scrollIntoView({behavior:calm?"auto":"smooth",block:"start"});}
+    });
+  });
+
+  var chips=$$(".chips button"), objs=$$(".obj");
+  function setFilter(f){
+    chips.forEach(function(c){c.setAttribute("aria-pressed",String(c.getAttribute("data-f")===f));});
+    objs.forEach(function(o){o.hidden=!(f==="all"||o.getAttribute("data-g")===f);});
+  }
+  chips.forEach(function(c){c.addEventListener("click",function(){setFilter(c.getAttribute("data-f"));});});
+
+  var reset=$("#reset"), timer=null;
+  function disarm(){reset.removeAttribute("data-armed");reset.textContent="New call";timer=null;}
+  reset.addEventListener("click",function(){
+    if(reset.getAttribute("data-armed")!=="1"){
+      reset.setAttribute("data-armed","1");reset.textContent="Tap again to clear";
+      timer=setTimeout(disarm,3000);return;
+    }
+    if(timer){clearTimeout(timer);}
+    disarm();
+    Object.keys(fields).forEach(function(k){fields[k].value="";});
+    ["now","goal"].forEach(fill);
+    onPrice();
+    objs.forEach(function(o){o.open=false;});
+    setFilter("all");
+    window.scrollTo({top:0,behavior:calm?"auto":"smooth"});
+  });
+})();
+</script>
+</body>
+</html>
