@@ -49,8 +49,8 @@ export function checks(): Check[] {
         const max = Number(d?.limits?.maxMonthlyUsageUsd ?? 0), used = Number(d?.current?.monthlyUsageUsd ?? 0);
         if (max > 0 && used >= max) return { ok: false, why: `usage limit reached ($${used.toFixed(2)} of $${max.toFixed(2)})` };
         if (max > 0 && used >= max * 0.9) return { ok: true, warn: `$${used.toFixed(2)} of its $${max.toFixed(2)} monthly limit used` };
-        return { ok: true, note: max ? `$${used.toFixed(2)} / $${max.toFixed(2)}` : undefined };
-      } catch { return { ok: true }; }
+        return { ok: true, note: max ? `$${used.toFixed(2)} / $${max.toFixed(2)}` : `limit unreadable: ${r.text.slice(0, 300)}` };
+      } catch { return { ok: true, note: `limit unreadable: ${r.text.slice(0, 300)}` }; }
     },
   });
   if (has("ANTHROPIC_API_KEY")) list.push({
