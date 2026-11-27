@@ -22,7 +22,8 @@ const FAILS_TO_ALERT = 2;
 
 async function http(url: string, init: RequestInit = {}, ms = 20_000): Promise<{ status: number; text: string }> {
   const r = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(ms) });
-  return { status: r.status, text: (await r.text()).slice(0, 600) };
+  // Full body (the Apify limits reply is ~1 KB of JSON); callers trim for display.
+  return { status: r.status, text: (await r.text()).slice(0, 20_000) };
 }
 function fromHttp(r: { status: number; text: string }): Probe {
   return r.status >= 200 && r.status < 300 ? { ok: true } : { ok: false, why: `HTTP ${r.status}: ${r.text.slice(0, 240)}` };
@@ -91,10 +92,10 @@ export function checks(): Check[] {
       return fromHttp(await http(`https://services.leadconnectorhq.com/locations/${loc}`, { headers: { Authorization: `Bearer ${t.token}`, Version: "2021-07-28" } }));
     },
   });
-  if (has("CLOSEBOT_API_KEY")) list.push({
-    key: "closebot", name: "CloseBot", does: "AI texting with leads (dashboard checks)", link: "https://app.closebot.com/",
-    run: async () => fromHttp(await http("https://api.closebot.com/agency/current", { headers: { "X-CB-KEY": String(process.env.CLOSEBOT_API_KEY), Accept: "application/json" } })),
-  });
+  /* CloseBot is NOT checked: its dashboard key answers 401 on every address
+     (11/27/2026), and only the read-only integrations status page uses it —
+     the AI texting itself and the daily CloseBot check do not. Checking it
+     would raise a box about nothing that matters. Re-add with a fresh key. */
   if (has("FANBASIS_API_KEY")) list.push({
     key: "fanbasis", name: "Fanbasis", does: "deposit payments on the funnels", link: "https://www.fanbasis.com/",
     run: async () => fromHttp(await http("https://www.fanbasis.com/public-api/products", { headers: { "x-api-key": String(process.env.FANBASIS_API_KEY), Accept: "application/json" } })),
