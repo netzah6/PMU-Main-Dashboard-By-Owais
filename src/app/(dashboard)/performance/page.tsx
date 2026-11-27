@@ -10,7 +10,7 @@ import { useUser } from "@/lib/hooks/useUser";
 import { ActivityLog } from "@/components/activity/ActivityLog";
 import { ClientTasks } from "@/components/activity/ClientTasks";
 import type { FbTrack } from "@/lib/fb-tracking";
-import { ClientWorthBox } from "@/components/performance/ClientWorthBox";
+import { ClientWorthBox, WorthCell, matchWorth, type Worth } from "@/components/performance/ClientWorthBox";
 import { CostPerDepositView } from "@/components/performance/CostPerDepositView";
 
 interface PerfRow {
@@ -332,6 +332,15 @@ function PerformanceView({ showWorth = false }: { showWorth?: boolean }) {
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+  // Admin only: what each client is worth to us per month (owner, 11/27/2026).
+  const [worth, setWorth] = useState<Worth | null>(null);
+  const [worthErr, setWorthErr] = useState(false);
+  useEffect(() => {
+    if (!showWorth) return;
+    fetch("/api/ltv/worth").then((r) => (r.ok ? r.json() : Promise.reject())).then(setWorth).catch(() => setWorthErr(true));
+  }, [showWorth]);
+  const worthMatch = useMemo(() => (worth ? matchWorth(worth.perClient) : null), [worth]);
+  const headers = useMemo(() => (showWorth ? [...HEADERS.slice(0, 3), "💰 Worth / mo", ...HEADERS.slice(3)] : HEADERS), [showWorth]);
 
   const assignees = useMemo(
     () => ["All", ...Array.from(new Set(rows.map((r) => r.assigned).filter(Boolean) as string[])).sort()],
@@ -393,7 +402,7 @@ function PerformanceView({ showWorth = false }: { showWorth?: boolean }) {
         </div>
       </div>
 
-      {showWorth && <ClientWorthBox />}
+      {showWorth && !worthErr && <ClientWorthBox w={worth} />}
 
       {error ? (
         <div className="px-4 py-3 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-sm">
@@ -409,8 +418,8 @@ function PerformanceView({ showWorth = false }: { showWorth?: boolean }) {
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr>
-                {HEADERS.map((h, idx) => {
-                  const divider = idx === 9 || idx === 13 || idx === 16; // after Status, L 3, CPL 7
+                {headers.map((h, idx) => {
+                  const divider = h === "Status" || h === "L 3" || h === "CPL 7";
                   return (
                     <th
                       key={h}
@@ -453,6 +462,7 @@ function PerformanceView({ showWorth = false }: { showWorth?: boolean }) {
                     <td className={cn("sticky z-10 px-3 py-1 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
                       style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name && r.ad_account_name !== r.business_name ? `Ad account: ${r.ad_account_name}` : (r.business_name ?? "")}>{r.business_name || r.ad_account_name || "—"}</td>
                     <td className="px-2 sm:px-3 py-1 text-center"><VersionChip version={versions.get(r.sheet_row)} /></td>
+                    {showWorth && <td className="px-2 sm:px-3 py-1 whitespace-nowrap"><WorthCell c={worthMatch?.(r.business_name, r.owner_name, r.ad_account_name)} loading={!worth && !worthErr} /></td>}
                     <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
                     <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
                     <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>
@@ -523,7 +533,7 @@ function PerformanceView({ showWorth = false }: { showWorth?: boolean }) {
                   </tr>
                   {isOpen && (
                     <tr className="bg-[#f3f7fb]">
-                      <td colSpan={HEADERS.length} className="p-0 border-b border-[#e4ebf2]">
+                      <td colSpan={headers.length} className="p-0 border-b border-[#e4ebf2]">
                         <div className="sticky left-0 p-3" style={{ width: "min(1240px, 100vw - 2rem)" }}>
                           {/* Log on the left, this client's tasks on the right (stacks on small screens). */}
                           <div className="grid gap-3 lg:grid-cols-3">
@@ -540,7 +550,7 @@ function PerformanceView({ showWorth = false }: { showWorth?: boolean }) {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={HEADERS.length} className="px-4 py-12 text-center text-[#8595a8]">No live clients match.</td></tr>
+                <tr><td colSpan={headers.length} className="px-4 py-12 text-center text-[#8595a8]">No live clients match.</td></tr>
               )}
             </tbody>
           </table>
