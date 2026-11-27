@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fileApifyLimitAlert, isApifyLimit, resolveApifyLimitAlert } from "@/lib/apify-limit-alert";
 import { queueIgPostsCheck } from "@/lib/ig-posts-check";
 import { classifyImages } from "@/lib/ig-classify";
 import { feedPosts, rankPosts, type FeedPost, type IgFeed, type IgProfile } from "@/lib/ig-arrange";
@@ -471,8 +472,12 @@ export async function refreshFunnel(svc: SupabaseClient, slug: string): Promise<
     prof = profiles.get(username.toLowerCase());
     posts = byUser.get(username.toLowerCase()) ?? [];
   } catch (e) {
-    return { ok: false, why: e instanceof Error ? e.message : String(e) };
+    const why = e instanceof Error ? e.message : String(e);
+    // Out of money on the picture service → Alerts tab (owner, 11/27/2026).
+    if (isApifyLimit(why)) await fileApifyLimitAlert(svc, why, [slug]).catch(() => {});
+    return { ok: false, why };
   }
+  await resolveApifyLimitAlert(svc).catch(() => {});
   if (!posts.length) {
     const why = prof?.private ? "private account" : "no posts returned (private, renamed, or blocked)";
     // A handle replaced while this ran leaves the newer fetch's mark alone.

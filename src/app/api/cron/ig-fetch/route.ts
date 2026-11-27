@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { queueIgPostsSweep } from "@/lib/ig-posts-check";
+import { fileApifyLimitAlert, isApifyLimit, resolveApifyLimitAlert } from "@/lib/apify-limit-alert";
 import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, fingerprintFeeds, markFetch, refreshHeader, snapshotFunnel, stillAsked, unclassifiedFunnels, usernameFromLink, type ApifyPost } from "@/lib/ig-fetch";
 
 export const maxDuration = 300;
@@ -84,8 +85,15 @@ export async function GET(req: NextRequest) {
     fetchProfiles(names).catch((e) => { profileErr = e instanceof Error ? e.message : String(e); return new Map(); }),
     fetchPosts(names).then((m) => ({ ok: true as const, m })).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) })),
   ]);
-  if (!postsRes.ok) return NextResponse.json({ error: postsRes.error, profileErr: profileErr || undefined, due: due.map((f) => f.slug) }, { status: 502 });
+  if (!postsRes.ok) {
+    // Out of money on the picture service: tell the owner in the Alerts tab
+    // (owner, 11/27/2026 — new funnels went 3 days with no Instagram grid).
+    if (isApifyLimit(postsRes.error)) await fileApifyLimitAlert(svc, postsRes.error, due.map((f) => f.slug)).catch(() => {});
+    return NextResponse.json({ error: postsRes.error, profileErr: profileErr || undefined, due: due.map((f) => f.slug) }, { status: 502 });
+  }
   const posts = postsRes.m;
+  // The service works again → the warning leaves the tab by itself.
+  await resolveApifyLimitAlert(svc).catch(() => {});
   /* ?debug=1: show what the scraper returned (shape only), write nothing.
      ?debug=1&details=1 also probes the general scraper's details mode. */
   if (req.nextUrl.searchParams.get("debug")) {
