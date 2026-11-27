@@ -384,15 +384,17 @@ export async function POST(req: NextRequest) {
 }
 
 /* The Clients Master "Business Name" matching any of the given names
-   (case/space-insensitive), Live/Paused rows only; "" when none matches. */
+   (letters and digits only, so a dropped "." or "," after a rename still
+   matches), Live/Paused rows only; "" when none matches. */
 async function dashboardBusinessName(svc: ReturnType<typeof createServiceClient>, names: string[]): Promise<string> {
-  const want = new Set(names.map((n) => n.toLowerCase().trim()).filter(Boolean));
+  const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const want = new Set(names.map(key).filter(Boolean));
   if (!want.size) return "";
   const { data } = await svc.from("clients_master").select("data").in("data->>col_1", ["Live", "Paused", "live", "paused"]);
   for (const r of data ?? []) {
     const d = (r as { data: Record<string, unknown> }).data ?? {};
     const biz = String(d["Business Name"] ?? "").trim();
-    if (biz && want.has(biz.toLowerCase())) return biz;
+    if (biz && want.has(key(biz))) return biz;
   }
   return "";
 }
