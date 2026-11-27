@@ -35,6 +35,7 @@ const TYPE_META: Record<string, { label: string; icon: string; chip: string }> =
   sms_limit: { label: "Text limit reached", icon: "📵", chip: "bg-red-50 text-red-700 border-red-200" },
   ai_back_on: { label: "Check-in: answer her", icon: "💬", chip: "bg-red-50 text-red-700 border-red-200" },
   apify_limit: { label: "Instagram pictures stopped", icon: "🖼️", chip: "bg-red-50 text-red-700 border-red-200" },
+  service_down: { label: "Outside service not working", icon: "🔌", chip: "bg-red-50 text-red-700 border-red-200" },
 };
 
 function typeMeta(t: string) {
@@ -93,7 +94,7 @@ function AlertCard({ a, onAction, busy }: { a: AlertRow; onAction: (id: string, 
               {link && (
                 <a href={link} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d5f0ee]">
-                  {a.type === "sms_limit" ? "Open text limit settings in GHL" : a.type === "apify_limit" ? "Raise the limit in Apify" : contact ? `Open ${contact} in GHL` : "Open contact in GHL"} ↗
+                  {a.type === "sms_limit" ? "Open text limit settings in GHL" : a.type === "apify_limit" ? "Raise the limit in Apify" : a.type === "service_down" ? `Open ${String(a.meta?.service ?? "the service")}` : contact ? `Open ${contact} in GHL` : "Open contact in GHL"} ↗
                 </a>
               )}
             </div>
