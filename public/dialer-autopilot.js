@@ -86,7 +86,17 @@
     var send = document.getElementById("conv-send-button-simple");
     var input = q('input[id^="composer-input-"], textarea[id^="composer-input-"]').filter(vis)[0];
     if (!vis(send) || !input) return null;
-    return { send: send, text: norm(input.value), ready: /^Send Message/.test(norm(send.getAttribute("aria-label"))) };  // "Sending message" = busy
+    return { send: send, input: input, text: norm(input.value), ready: /^Send Message/.test(norm(send.getAttribute("aria-label"))) };  // "Sending message" = busy
+  }
+  function putText(el, text) {                  // set GHL's text box the way typing does, so its own state updates too
+    if (!el || !text) return false;
+    try {
+      var proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, text);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    } catch (x) { return false; }
   }
   function startBtn() { var b = document.getElementById("manual-actions-let-start-button"); return vis(b) && !b.disabled ? b : null; }
   function param(k) { return new URLSearchParams(location.search).get(k) || ""; }
@@ -258,10 +268,15 @@
       if (s.want === undefined) {                   // ask the dashboard for this lead's text, once
         s.want = null; say("Checking the text…");
         var r = run, cid = contactId();
-        call("text", cid).then(function (j) { if (r !== run) return; s.want = j && j.ok ? norm(j.text) : ""; });
+        call("text", cid).then(function (j) { if (r !== run) return; s.rawWant = j && j.ok ? String(j.text || "") : ""; s.want = norm(s.rawWant); });
         return;
       }
       if (s.want === null) return;
+      if (s.want && c.text !== s.want && !s.fixTried) {   // owner 11/27: an old draft / hand text left in the box → put ours in, check again
+        s.fixTried = true; s.seen = now; s.textAt = 0;
+        if (putText(c.input, s.rawWant)) say("Old text in the box → replaced with ours, checking…");
+        return;
+      }
       if (!s.want || c.text !== s.want) { s.blocked = true; say("⚠ This text is not the one we wrote for this lead — NOT sent. Check it, then send or click Next yourself."); return; }
       if (!c.ready) return;
       if (!s.textAt) { s.textAt = now; say("Text ready · sending in 2s"); return; }
