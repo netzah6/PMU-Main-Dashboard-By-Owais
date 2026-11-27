@@ -261,6 +261,14 @@ export async function checkDemos(names: string[]): Promise<DemoResult[]> {
     if (best.status === "not_yet" && demo?.startTime && demo.startTime < nowLocal) {
       note = `Demo time has passed but the card is still in "Demo - Booked" — outcome not recorded, check the conversation`;
     }
+    // Didn't Convert: the owner gives the setter feedback per lead, so say
+    // plainly whether this person ever had a demo on the calendar.
+    if (best.status === "didnt_convert") {
+      const head = demo?.startTime
+        ? `Had a demo on ${demo.startTime.slice(0, 10)}, then moved to Didn't Convert`
+        : "Never booked a demo — went straight to Didn't Convert";
+      note = [head, best.note].filter(Boolean).join(" · ");
+    }
 
     out.push({
       query: name,

@@ -317,6 +317,10 @@ export default function SalesPage() {
       if (!rows.length) continue;
       const count = sec.key === "showed" ? `(${rows.length}/${results.length})` : `${rows.length}`;
       const lines = rows.map((r) => {
+        if (sec.key === "didnt_convert") {
+          const had = r.note?.match(/Had a demo on (\d{4}-\d{2}-\d{2})/);
+          return had ? `${slackName(r)} — had a demo on ${fmtLocal(had[1], false)}` : `${slackName(r)} — never booked a demo`;
+        }
         if (sec.key !== "not_yet") return slackName(r);
         if (!r.appointmentAt) return `${slackName(r)} — no demo booked yet`;
         const passed = /time has passed/i.test(r.note ?? "");
