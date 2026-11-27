@@ -17,7 +17,7 @@ const DEMO_CALENDARS = new Set(["8N5925C8NxX7E0Cbw1oF", "RP7VFqOadCAfpKAfwM9F"])
 // Zone the sub-account's calendar times are expressed in.
 const ACCOUNT_TZ = process.env.GHL_LOCATION_TZ || "America/Los_Angeles";
 
-export type DemoStatus = "showed" | "not_yet" | "no_show" | "cancelled" | "not_in_system";
+export type DemoStatus = "showed" | "not_yet" | "no_show" | "cancelled" | "didnt_convert" | "not_in_system";
 
 export type DemoResult = {
   query: string;              // the name exactly as it was pasted in
@@ -65,7 +65,7 @@ function norm(s: string): string {
 
 const CLIENT_JOURNEY = /client journey/i;
 // How far along each verdict is — used to pick between several sales deals.
-const STATUS_RANK: Record<DemoStatus, number> = { showed: 4, not_yet: 3, no_show: 2, cancelled: 1, not_in_system: 0 };
+const STATUS_RANK: Record<DemoStatus, number> = { showed: 5, not_yet: 4, no_show: 3, cancelled: 2, didnt_convert: 1, not_in_system: 0 };
 
 /** True when every word of the pasted name is a whole word of `full`
  *  ("Xuan" ~ "Xuan Luong"); a single letter may stand for an initial
@@ -96,6 +96,9 @@ function classify(stageName: string, stage: Stage | undefined, demoIdx: number):
   if (isDemoStage && /no show/.test(n)) return { status: "no_show" };
   if (isDemoStage && /cancel/.test(n)) return { status: "cancelled" };
   if (isDemoStage && /booked/.test(n)) return { status: "not_yet" };
+  // "☹️ Didn't Convert" = the lead never booked a demo. Owner (11/27/2026)
+  // wants these in their own group, not mixed into "Not happened yet".
+  if (/didn ?t convert/.test(n)) return { status: "didnt_convert" };
 
   if (stage && demoIdx >= 0) {
     if (stage.position > demoIdx) return { status: "showed" };
@@ -232,7 +235,7 @@ export async function checkDemos(names: string[]): Promise<DemoResult[]> {
     // recently touched.
     // Pasted names are people who booked a demo, so someone whose deal never
     // got that far (discovery, nurture) is a weaker match than one who did.
-    const reachedDemo = (c: Cand) => c.status !== "not_yet" || /demo/.test(norm(c.stage ?? ""));
+    const reachedDemo = (c: Cand) => (c.status !== "not_yet" && c.status !== "didnt_convert") || /demo/.test(norm(c.stage ?? ""));
     withOpp.sort((a, b) =>
       Number(b.nameMatch) - Number(a.nameMatch) ||
       Number(reachedDemo(b)) - Number(reachedDemo(a)) ||

@@ -13,6 +13,7 @@ const SECTIONS: Array<{ key: DemoStatus; label: string; emoji: string; tint: str
   { key: "not_yet",       label: "Not happened yet", emoji: "📅", tint: "#f5f8fc", border: "#7f9cc4" },
   { key: "no_show",       label: "No-show",          emoji: "❌", tint: "#fdf3f3", border: "#d97070" },
   { key: "cancelled",     label: "Cancelled",        emoji: "⛔", tint: "#fbf7f1", border: "#d0a05e" },
+  { key: "didnt_convert", label: "Didn't Convert",   emoji: "☹️", tint: "#faf6fb", border: "#b48ac4" },
   { key: "not_in_system", label: "Not in the system",emoji: "❓", tint: "#f7f7f9", border: "#a3adbb" },
 ];
 
@@ -296,7 +297,7 @@ export default function SalesPage() {
   }
 
   const shown = results?.filter((r) => r.status === "showed").length ?? 0;
-  const resolved = results?.filter((r) => r.status !== "not_yet" && r.status !== "not_in_system").length ?? 0;
+  const resolved = results?.filter((r) => r.status !== "not_yet" && r.status !== "didnt_convert" && r.status !== "not_in_system").length ?? 0;
 
   // The message the team posts in Slack after a check — kept clean (owner,
   // 2026-10-09): names only under Showed / No-show, one short line per demo
