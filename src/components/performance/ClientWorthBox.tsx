@@ -1,6 +1,6 @@
 "use client";
 import { formatCurrency } from "@/lib/utils";
-import { bizKey, monthLabel, monthNow, sortedKey } from "@/lib/ltv-keys";
+import { bizKey, monthLabel, sortedKey } from "@/lib/ltv-keys";
 import type { ClientMoney } from "@/lib/ltv-deposits";
 
 /* 💎 What one client is worth to us on average (owner, 11/27/2026): lifetime
@@ -24,7 +24,7 @@ export function ClientWorthBox({ w }: { w: Worth | null }) {
     <div className="rounded-[14px] border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
       <div className="flex items-baseline gap-2 flex-wrap mb-2">
         <span className="text-sm font-semibold text-[#1f3559]">💎 Average client worth</span>
-        <span className="text-[11px] text-[#8595a8]">{w ? `${n} clients · only you see this · each client's own number is in the 💰 column` : "loading…"}</span>
+        <span className="text-[11px] text-[#8595a8]">{w ? `${n} clients · only you see this · each client’s last 6 months is in the 💰 column` : "loading…"}</span>
       </div>
       <div className="flex items-baseline gap-2 flex-wrap mb-2"
         title="All service fees + deposits (minus refunds), divided by all the months clients stayed with us (first to last month we got money from them).">
@@ -62,36 +62,36 @@ export function matchWorth(list: ClientMoney[]) {
     byBiz.get(bizKey(business)) ?? byBiz.get(bizKey(adAccount)) ?? byName.get(sortedKey(owner));
 }
 
-/* One client per month, from their first month with us to this month:
-   (service fees + deposits − refunds) ÷ months. Upfront payments spread over
-   the months they cover, because the months run to today. */
+/* One client per month = the last 6 full months (owner, 11/28/2026):
+   (service fees + deposits − refunds in those months) ÷ 6. A client who
+   started inside the window is divided by her own months only. */
 export function clientPerMonth(c: ClientMoney) {
-  const fees = c.sheetFees + c.monthly + c.perAppt;
-  const dep = Math.max(0, c.deposits - c.refunds);
-  const months = c.first == null ? 0 : Math.max(1, monthNow() - c.first + 1);
-  return { fees, dep, months, perMonth: months ? (fees + dep) / months : 0 };
+  const r = c.recent;
+  if (!r) return { fees: 0, dep: 0, months: 0, perMonth: 0 };
+  const dep = r.deposits - r.refunds;
+  return { fees: r.fees, dep, months: r.months, perMonth: (r.fees + dep) / r.months };
 }
 
 export function WorthCell({ c, loading }: { c?: ClientMoney; loading: boolean }) {
   if (loading) return <span className="text-[#c3cdd9]">…</span>;
   if (!c) return <span className="text-[#c3cdd9]" title="No payments found for this client">—</span>;
+  const r = c.recent;
+  if (!r) return <span className="text-[10px] text-[#8595a8]" title={`${c.name}: started this month, no full month yet`}>new</span>;
   const { fees, dep, months, perMonth } = clientPerMonth(c);
-  if (!months) return <span className="text-[#c3cdd9]" title="No payment dates found">—</span>;
-  const isNew = months < 3;
-  const tone = isNew ? "text-[#8595a8]" : perMonth >= 400 ? "text-[#0e8f88]" : perMonth >= 200 ? "text-[#d97706]" : "text-[#e11d48]";
-  const gap = c.feeGap >= 3 && c.gapFrom != null;
+  const isNew = months < 6;
+  const tone = perMonth >= 400 ? "text-[#0e8f88]" : perMonth >= 200 ? "text-[#d97706]" : "text-[#e11d48]";
+  const empty = r.byMonth.filter((x) => !x.fees).map((x) => monthLabel(x.m));
   const tip = [
-    `${c.name}: ${formatCurrency(perMonth)} per month over ${months} month${months === 1 ? "" : "s"} (since ${monthLabel(c.first!)})`,
-    `Service fees ${formatCurrency(fees)}${c.monthly || c.perAppt ? ` (incl. ${c.monthly ? `${formatCurrency(c.monthly)} monthly charges` : ""}${c.monthly && c.perAppt ? " + " : ""}${c.perAppt ? `${formatCurrency(c.perAppt)} per-appointment fees` : ""} taken by the dashboard)` : ""}`,
-    `Deposits ${formatCurrency(c.deposits)} − refunds ${formatCurrency(c.refunds)} = ${formatCurrency(dep)}${c.depCount ? ` (${c.depCount} deposits)` : ""}`,
-    c.last != null ? `Last money in: ${monthLabel(c.last)}` : "",
-    isNew ? "New client (under 3 months): upfront payments make this look high for now." : "",
-    gap ? `⚠ No service fee on record for ${c.feeGap} months from ${monthLabel(c.gapFrom!)}. They may have paid somewhere we don't see — check Square before deciding.` : "",
+    `${c.name}: ${formatCurrency(perMonth)} per month (last ${months} month${months === 1 ? "" : "s"}, ${monthLabel(r.from)} to ${monthLabel(r.from + months - 1)})`,
+    ...r.byMonth.map((x) => `${monthLabel(x.m)}: ${formatCurrency(x.fees)}${x.dep ? ` + ${formatCurrency(x.dep)} deposits` : ""}`),
+    `Total: fees ${formatCurrency(fees)} + deposits ${formatCurrency(r.deposits)}${r.refunds ? ` − refunds ${formatCurrency(r.refunds)}` : ""} = ${formatCurrency(fees + dep)}`,
+    isNew ? `New client: with us since ${monthLabel(r.from)}, so divided by ${months}.` : "",
+    empty.length ? `⚠ No service fee on record in ${empty.join(", ")}. Normal if she paid upfront; otherwise check Square.` : "",
   ].filter(Boolean).join("\n");
   return (
     <span className="inline-flex flex-col items-start leading-tight cursor-default" title={tip}>
-      <span className={`text-xs font-bold ${tone}`}>{formatCurrency(perMonth)}{gap && " ⚠"}</span>
-      <span className="text-[10px] text-[#8595a8]">{isNew ? "new · " : ""}{months} mo</span>
+      <span className={`text-xs font-bold ${tone}`}>{formatCurrency(perMonth)}{empty.length ? " ⚠" : ""}</span>
+      <span className="text-[10px] text-[#8595a8]">{isNew ? `new · ${months} mo` : "last 6 mo"}</span>
     </span>
   );
 }
