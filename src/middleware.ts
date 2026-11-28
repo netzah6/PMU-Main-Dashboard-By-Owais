@@ -161,8 +161,10 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   const isPublicBilling = p.startsWith("/my-billing/") || p.startsWith("/m/") || p === "/m"; // "/m" = the client app's sign-in screen
   // E-signature page: the client signs their agreement by its secret link (11/26/2026).
   const isPublicSign = p.startsWith("/sign/");
+  // "Add to my calendar" page: the client opens it from the booking text, no login (11/28/2026).
+  const isPublicCal = p.startsWith("/cal/");
 
-  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta && !isPublicFunnel && !isPublicDeck && !isPublicIntake && !isPublicBilling && !isPublicSign) {
+  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta && !isPublicFunnel && !isPublicDeck && !isPublicIntake && !isPublicBilling && !isPublicSign && !isPublicCal) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
