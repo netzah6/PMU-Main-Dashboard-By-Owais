@@ -276,12 +276,18 @@ export default function PerformancePage() {
           </button>
         ))}
       </div>
-      {view === "cpd" ? <CostPerDepositView /> : <PerformanceView showWorth />}
+      {view === "cpd" ? <CostPerDepositView /> : <PerformanceView canWorth />}
     </div>
   );
 }
 
-function PerformanceView({ showWorth = false }: { showWorth?: boolean }) {
+function PerformanceView({ canWorth = false }: { canWorth?: boolean }) {
+  /* Owner 11/28/2026: a button to hide the worth box + column; the choice is
+     remembered on this computer. */
+  const [hideWorth, setHideWorth] = useState(false);
+  useEffect(() => { try { setHideWorth(localStorage.getItem("perf:hideWorth") === "1"); } catch {} }, []);
+  const toggleWorth = () => setHideWorth((h) => { try { localStorage.setItem("perf:hideWorth", h ? "0" : "1"); } catch {} return !h; });
+  const showWorth = canWorth && !hideWorth;
   const [rows, setRows] = useState<PerfRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -399,6 +405,12 @@ function PerformanceView({ showWorth = false }: { showWorth?: boolean }) {
             {statuses.map((s) => <option key={s} value={s}>{s === "All" ? "All statuses" : s}</option>)}
           </select>
           <span className="text-xs text-[#697a91]">{filtered.length} shown</span>
+          {canWorth && (
+            <button onClick={toggleWorth} title={hideWorth ? "Show what each client is worth to you" : "Hide the client worth box and column"}
+              className="px-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-xs font-medium text-[#34568a] hover:border-[#15B7AE]">
+              💎 {hideWorth ? "Show worth" : "Hide worth"}
+            </button>
+          )}
         </div>
       </div>
 
