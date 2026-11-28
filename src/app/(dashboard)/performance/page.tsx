@@ -11,6 +11,8 @@ import { ActivityLog } from "@/components/activity/ActivityLog";
 import { ClientTasks } from "@/components/activity/ClientTasks";
 import type { FbTrack } from "@/lib/fb-tracking";
 import { ClientWorthBox, WorthCell, matchWorth, type Worth } from "@/components/performance/ClientWorthBox";
+import type { RecentFees } from "@/lib/worth-recent";
+import { sortedKey } from "@/lib/ltv-keys";
 import { CostPerDepositView } from "@/components/performance/CostPerDepositView";
 
 interface PerfRow {
@@ -344,7 +346,11 @@ function PerformanceView({ canWorth = false }: { canWorth?: boolean }) {
   useEffect(() => {
     if (!showWorth) return;
     fetch("/api/ltv/worth").then((r) => (r.ok ? r.json() : Promise.reject())).then(setWorth).catch(() => setWorthErr(true));
+    // Real monthly fees (Square + dashboard charges), last 6 months.
+    fetch("/api/ltv/worth-recent").then((r) => (r.ok ? r.json() : Promise.reject())).then(setFees).catch(() => setFeesErr(true));
   }, [showWorth]);
+  const [fees, setFees] = useState<RecentFees | null>(null);
+  const [feesErr, setFeesErr] = useState(false);
   const worthMatch = useMemo(() => (worth ? matchWorth(worth.perClient) : null), [worth]);
   const headers = useMemo(() => (showWorth ? [...HEADERS.slice(0, 3), "💰 Worth / mo", ...HEADERS.slice(3)] : HEADERS), [showWorth]);
 
@@ -474,7 +480,11 @@ function PerformanceView({ canWorth = false }: { canWorth?: boolean }) {
                     <td className={cn("sticky z-10 px-3 py-1 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
                       style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name && r.ad_account_name !== r.business_name ? `Ad account: ${r.ad_account_name}` : (r.business_name ?? "")}>{r.business_name || r.ad_account_name || "—"}</td>
                     <td className="px-2 sm:px-3 py-1 text-center"><VersionChip version={versions.get(r.sheet_row)} /></td>
-                    {showWorth && <td className="px-2 sm:px-3 py-1 whitespace-nowrap"><WorthCell c={worthMatch?.(r.business_name, r.owner_name, r.ad_account_name)} loading={!worth && !worthErr} /></td>}
+                    {showWorth && <td className="px-2 sm:px-3 py-1 whitespace-nowrap">{(() => {
+                      const c = worthMatch?.(r.business_name, r.owner_name, r.ad_account_name);
+                      const f = fees ? (fees.byKey[sortedKey(r.owner_name)] ?? c?.nameKeys.map((k) => fees.byKey[k]).find(Boolean)) : undefined;
+                      return <WorthCell c={c} fees={f} loading={(!worth && !worthErr) || (!fees && !feesErr)} failed={feesErr} />;
+                    })()}</td>}
                     <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
                     <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
                     <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>
